@@ -1,0 +1,40 @@
+// The app's own icon set. Every glyph is drawn on a 16x16 grid inside a 2px margin, with
+// square caps and mitred joins, so all of them sit optically centred in any button.
+// Values are SVG path data; "fill" entries are filled squares instead of strokes.
+export const icons = {
+  plus: 'M8 3v10M3 8h10',
+  minus: 'M3 8h10',
+  close: 'M3.5 3.5l9 9M12.5 3.5l-9 9',
+  max: 'M3.5 3.5h9v9h-9z',
+  restore: 'M5.5 5.5v-2h7v7h-2M3.5 5.5h7v7h-7z',
+  search: 'M3 3h7v7H3zM10 10l3.5 3.5',
+  refresh: 'M13 3v4H9M13 7A5 5 0 1 0 12 11.5',
+  chevron: 'M5.5 3.5L10 8l-4.5 4.5',
+  check: 'M3 8.5l3.2 3.2L13 4.5',
+  copy: 'M6 6h7v7H6zM3 10V3h7',
+  trash: 'M3 4.5h10M6 4.5v-2h4v2M4.5 4.5l.5 9h6l.5-9',
+  link: 'M7 5H3v6h4M9 5h4v6H9M5.5 8h5',
+  external: 'M9 3h4v4M13 3L7.5 8.5M6 4H3v9h9v-3',
+  clipboard: 'M5.5 3.5h-2v10h9v-10h-2M5.5 2.5h5v2.5h-5z',
+  file: 'M4 2.5h5l3 3v8H4zM9 2.5v3h3',
+  edit: 'M3 13l.5-3L10.5 3l2.5 2.5L6 12.5z',
+  pin: 'M8 14V9M4.5 3h7v6h-7z',
+  shield: 'M8 2.5l5 1.5v4c0 3-2.2 4.8-5 5.5-2.8-.7-5-2.5-5-5.5V4z',
+  bolt: 'M9 2L4 9h4l-1 5 5-7H8z',
+  warn: 'M8 3l6 10H2zM8 7v3M8 11.6v.4',
+  info: 'M3 3h10v10H3zM8 7.5V11M8 5v.4',
+  power: 'M8 2.5v5M5 4.5A4.5 4.5 0 1 0 11 4.5',
+  globe: 'M2.5 2.5h11v11h-11zM2.5 8h11M8 2.5v11',
+  // navigation
+  servers: 'M3 3h10v4H3zM3 9h10v4H3zM5.5 5h.5M5.5 11h.5',
+  routes: 'M2.5 2.5h4v4h-4zM9.5 9.5h4v4h-4zM6.5 4.5H11v5',
+  log: 'M3 4h10M3 8h10M3 12h6',
+  settings: 'M3 4.5h4M11 4.5h2M3 11.5h2M9 11.5h4M7 3h2.5v3H7zM5 10h2.5v3H5z',
+  // traffic
+  down: 'M8 3v9M4 8.5l4 4 4-4',
+  up: 'M8 13V4M4 7.5l4-4 4 4',
+  qr: 'M3 3h4v4H3zM9 3h4v4H9zM3 9h4v4H3zM9.5 9.5h1.5M12.5 9.5v1.5M9.5 12.5h3.5',
+  tun: 'M2.5 5.5h11v5h-11zM5 5.5v5M8 5.5v5M11 5.5v5',
+  proxy: 'M2.5 8h3M10.5 8h3M5.5 5.5h5v5h-5z',
+  ports: 'M3 3h4v4H3zM9 3h4v4H9zM3 9h4v4H3zM9 9h4v4H9z',
+};

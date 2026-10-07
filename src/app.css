@@ -1,0 +1,285 @@
+/* Every colour, size and speed the interface uses lives here. Theme = data-theme on <html>,
+   accent = --accent set from the settings; everything else is derived from those. */
+:root {
+  --accent: #3ddc84;
+
+  --bg: #090c0b;
+  --surface: #0e1311;
+  --surface-2: #141a17;
+  --surface-3: #1b2320;
+  --line: #1f2824;
+  --line-2: #2b3631;
+  --text: #e4ede7;
+  --text-2: #94a39b;
+  --text-3: #5f6d66;
+  --danger: #ff5f5f;
+  --warn: #f0b64a;
+  --flag-dark: #4b544f;
+  --flag-light: #e6ece8;
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+
+  --accent-ink: #04140b;
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+  --accent-soft-2: color-mix(in srgb, var(--accent) 20%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent) 42%, transparent);
+  --accent-dim: color-mix(in srgb, var(--accent) 62%, var(--bg));
+  --danger-soft: color-mix(in srgb, var(--danger) 14%, transparent);
+
+  --r: 3px;
+  --r-lg: 5px;
+  --sidebar: 348px;
+  --titlebar: 36px;
+  --row: 46px;
+
+  --t-fast: 110ms;
+  --t: 190ms;
+  --t-slow: 340ms;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in: cubic-bezier(0.5, 0, 0.9, 0.4);
+
+  --font: 'Segoe UI Variable Text', 'Segoe UI', -apple-system, 'SF Pro Text', 'Inter', 'Cantarell', 'Noto Sans', system-ui, sans-serif;
+  --mono: 'Bahnschrift', 'DIN Alternate', 'SF Pro Display', 'Segoe UI Variable Display', 'Inter', 'Cantarell', 'Noto Sans', system-ui, sans-serif;
+  --code: 'Cascadia Mono', 'Cascadia Code', 'SF Mono', Menlo, 'JetBrains Mono', 'DejaVu Sans Mono', Consolas, 'Courier New', monospace;
+}
+
+:root[data-theme='light'] {
+  --bg: #edf1ee;
+  --surface: #f6f8f6;
+  --surface-2: #ffffff;
+  --surface-3: #e7ece8;
+  --line: #dbe2dd;
+  --line-2: #c5cec8;
+  --text: #0f1512;
+  --text-2: #56635c;
+  --text-3: #8b9790;
+  --danger: #d93a3a;
+  --warn: #b97a08;
+  --flag-dark: #1c211e;
+  --flag-light: #c3cdc7;
+  --shadow: 0 18px 50px rgba(20, 40, 30, 0.18);
+  --accent-ink: #03130a;
+  --accent-dim: color-mix(in srgb, var(--accent) 70%, #0a2a18);
+}
+
+:root[data-effects='lite'] *,
+:root[data-effects='lite'] *::before,
+:root[data-effects='lite'] *::after {
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.4 var(--font);
+  overflow: hidden;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+  cursor: default;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+::selection {
+  background: var(--accent-soft-2);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-3);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+code,
+.code {
+  font-family: var(--code);
+}
+
+.label {
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+/* One icon button for the whole app: the glyph is centred by the flex box, never nudged by hand. */
+.ibtn {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r);
+  color: var(--text-2);
+  transition: background-color var(--t-fast), color var(--t-fast), transform var(--t-fast);
+}
+.ibtn:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+.ibtn:active {
+  transform: scale(0.92);
+}
+.ibtn[disabled] {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.btn {
+  height: 34px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: var(--r);
+  border: 1px solid var(--line-2);
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 600;
+  transition: background-color var(--t-fast), border-color var(--t-fast), transform var(--t-fast), color var(--t-fast);
+}
+.btn:hover {
+  border-color: var(--text-3);
+  background: var(--surface-3);
+}
+.btn:active {
+  transform: scale(0.97);
+}
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.btn.primary:hover {
+  background: color-mix(in srgb, var(--accent) 88%, #fff);
+}
+.btn.danger {
+  border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+  color: var(--danger);
+}
+.btn.danger:hover {
+  background: var(--danger-soft);
+}
+.btn[disabled] {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.input {
+  height: 34px;
+  width: 100%;
+  padding: 0 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  outline: none;
+  user-select: text;
+  transition: border-color var(--t-fast), background-color var(--t-fast);
+}
+.input::placeholder {
+  color: var(--text-3);
+}
+.input:hover {
+  border-color: var(--line-2);
+}
+.input:focus {
+  border-color: var(--accent-line);
+  background: var(--surface);
+}
+textarea.input {
+  height: auto;
+  padding: 9px 10px;
+  resize: none;
+  font: 12px/1.5 var(--code);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* A narrow window (a tile in a tiling window manager, a phone-sized strip): the list takes the
+   whole width and the map steps aside; a panel, when open, takes the place of the list. */
+@media (max-width: 720px) {
+  main > aside {
+    width: 100% !important;
+    border-right: 0 !important;
+  }
+  main > .stage {
+    display: none;
+  }
+  main.panel > aside {
+    display: none;
+  }
+  main.panel > .stage {
+    display: block;
+  }
+  .toasts {
+    left: 16px !important;
+    bottom: 64px !important;
+  }
+}

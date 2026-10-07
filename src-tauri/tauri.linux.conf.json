@@ -1,0 +1,25 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Quadra",
+        "width": 1188,
+        "height": 744,
+        "minWidth": 340,
+        "minHeight": 420,
+        "decorations": false,
+        "center": true,
+        "visible": false,
+        "dragDropEnabled": false,
+        "backgroundColor": "#090c0b"
+      }
+    ]
+  },
+  "bundle": {
+    "targets": ["deb", "rpm", "appimage"],
+    "linux": {
+      "deb": { "depends": ["libayatana-appindicator3-1"] }
+    }
+  }
+}

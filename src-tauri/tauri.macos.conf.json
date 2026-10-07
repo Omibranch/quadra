@@ -1,0 +1,31 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Quadra",
+        "width": 1188,
+        "height": 744,
+        "minWidth": 940,
+        "minHeight": 600,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "center": true,
+        "visible": false,
+        "dragDropEnabled": false,
+        "backgroundColor": "#090c0b"
+      }
+    ]
+  },
+  "bundle": {
+    "targets": [
+      "dmg",
+      "app"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "signingIdentity": "-"
+    }
+  }
+}

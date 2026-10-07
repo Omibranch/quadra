@@ -1,0 +1,7 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/target-next/
+src-tauri/gen/
+# Xray-core and its data files: fetched by tools/fetch-xray.mjs
+src-tauri/resources/xray/
