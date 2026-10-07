@@ -79,7 +79,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $p = Start-Process src-tauri	argetelease\quadra.exe -PassThru
+          $p = Start-Process src-tauri/target/release/quadra.exe -PassThru
           Start-Sleep -Seconds 14
           if ($p.HasExited) { Write-Error "the app exited"; exit 1 } else { "still running after 14 s"; Stop-Process -Id $p.Id -Force }
 
