@@ -282,4 +282,18 @@ textarea.input {
     left: 16px !important;
     bottom: 64px !important;
   }
+  /* settings rows: the control goes under its description */
+  .field {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 10px !important;
+  }
+  .field .control {
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+  .panel .body {
+    padding-left: 18px !important;
+    padding-right: 18px !important;
+  }
 }

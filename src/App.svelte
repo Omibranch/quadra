@@ -35,8 +35,9 @@
 
   onMount(async () => {
     await init();
-    // painted once, then tell the backend: it lets the startup cube finish and shows this window
-    requestAnimationFrame(() => requestAnimationFrame(() => invoke('ready')));
+    // Tell the backend: it lets the startup cube finish and shows this window. A timer, not a
+    // frame callback: the window is still hidden, and WebKit runs no frames for a hidden window.
+    setTimeout(() => invoke('ready'), 0);
   });
 
   function onKey(e) {
