@@ -54,6 +54,42 @@ jobs:
       - name: Installers
         run: npm run tauri build
 
+      # Start the built app for a few seconds: it has to come up, stay up and draw its window.
+      - name: Smoke test (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y xvfb dbus-x11 imagemagick >/dev/null
+          dbus-run-session -- xvfb-run -a -s "-screen 0 1280x820x24" bash -c '
+            src-tauri/target/release/quadra & pid=$!
+            sleep 14
+            import -window root smoke-linux.png || true
+            kill -0 $pid && echo "still running after 14 s" || { echo "the app exited"; exit 1; }
+            kill $pid'
+
+      - name: Smoke test (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          src-tauri/target/release/bundle/macos/Quadra.app/Contents/MacOS/quadra & pid=$!
+          sleep 14
+          screencapture -x smoke-macos.png || true
+          kill -0 $pid && echo "still running after 14 s" || { echo "the app exited"; exit 1; }
+          kill $pid
+
+      - name: Smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $p = Start-Process src-tauri	argetelease\quadra.exe -PassThru
+          Start-Sleep -Seconds 14
+          if ($p.HasExited) { Write-Error "the app exited"; exit 1 } else { "still running after 14 s"; Stop-Process -Id $p.Id -Force }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-${{ matrix.os }}
+          if-no-files-found: ignore
+          path: smoke-*.png
+
       - uses: actions/upload-artifact@v4
         with:
           name: quadra-${{ matrix.os }}
