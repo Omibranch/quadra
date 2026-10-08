@@ -57,7 +57,7 @@
   let cam = null; // where the map's corner is right now, in device pixels
   let drag = null; // a finger moving the map
   let nudge = [0, 0]; // how far the user has dragged away from where the camera would sit
-  let touch = false;
+  let touch = $state(false);
   let tipTimer;
   let colors = null;
   let glow = null;
