@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/Omibranch/quadra/releases/latest"><img src="https://img.shields.io/github/v/release/Omibranch/quadra?color=3ddc84&label=release" alt="Latest release"></a>
   <a href="https://github.com/Omibranch/quadra/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/Omibranch/quadra/build.yml?branch=main&label=build" alt="Build"></a>
-  <img src="https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-2b3631" alt="Windows, macOS, Linux">
+  <img src="https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux%20%C2%B7%20Android-2b3631" alt="Windows, macOS, Linux, Android">
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-2b3631" alt="MIT licence"></a>
 </p>
 
@@ -56,6 +56,7 @@ Get the installer for your system from the
 | macOS, Apple silicon | `Quadra_x.y.z_aarch64.dmg` | See the note on unsigned builds below |
 | macOS, Intel | `Quadra_x.y.z_x64.dmg` | |
 | Linux | `.deb`, `.rpm` or `.AppImage` | Needs WebKitGTK 4.1 |
+| Android 8+ (experimental) | `Quadra_x.y.z_android-arm64.apk` | Install the file directly; it is not on Google Play |
 
 The builds are not code-signed. Windows SmartScreen will ask once ("More info", then
 "Run anyway"). On macOS, open the app the first time with a right click and "Open", or run
@@ -65,6 +66,10 @@ The builds are not code-signed. Windows SmartScreen will ask once ("More info", 
 and Linux versions are built and tested automatically but have not yet had much time on real
 machines: treat them as a preview and [open an issue](https://github.com/Omibranch/quadra/issues)
 when something is off.
+
+The Android version is an experiment. Every build is installed on an emulator, connects to a
+test server, and is checked for traffic from other apps really passing through the tunnel and
+for a clean disconnect. It has never run on a physical phone.
 
 The interface is in Russian for now.
 
@@ -87,6 +92,8 @@ The interface is in Russian for now.
 - **System proxy** is set through the system's own mechanism: the Windows Internet settings,
   `networksetup` on macOS, GNOME or KDE settings on Linux. On desktops without such a setting
   use the ports or the all-traffic mode.
+- **Android** has one mode, the system VPN. Quadra itself is left out of the tunnel so that
+  its own connection to the server does not loop back into it.
 - **Tiling window managers** (sway, i3, Hyprland and others) are detected: the window drops its
   own title bar and startup splash, has no minimum size, and folds into a single column when the
   tile is narrow.
@@ -113,6 +120,7 @@ Where things are:
 | `src/` | The interface (Svelte 5). `lib/MapView.svelte` is the map and the connect animation, `app.css` holds every colour, size and speed as a variable |
 | `src-tauri/src/` | The backend (Rust): subscriptions, share links, Xray config, the core's lifecycle |
 | `src-tauri/src/sys/` | Everything that differs between operating systems |
+| `src-tauri/plugins/vpn/` | The Android side: the VPN service, in Kotlin |
 | `tools/` | Scripts: the map generator, the startup cube (a Blender render), end-to-end checks |
 
 Tests: `cargo test` in `src-tauri`.

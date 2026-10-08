@@ -299,10 +299,6 @@ textarea.input {
 }
 
 /* Android: one column, the map on top of the list; panels take the whole screen. */
-:root[data-platform='android'] #app {
-  padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
-}
 :root[data-platform='android'] main {
   flex-direction: column;
 }
@@ -326,7 +322,7 @@ textarea.input {
 }
 :root[data-platform='android'] main.panel > .stage {
   position: fixed;
-  inset: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) 0;
+  inset: 0;
   height: auto;
   z-index: 20;
 }

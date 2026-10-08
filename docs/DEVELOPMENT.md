@@ -42,6 +42,30 @@ additions to the address:
 The core's output of the current and previous session is kept in `core.log` in the app's data
 folder (`%APPDATA%\dev.quadra.client` on Windows).
 
+## Android
+
+There is no Android project in the repository: `npx tauri android init` generates it under
+`src-tauri/gen/android`, and `node tools/android-prepare.mjs` adjusts it. What is ours lives in
+`src-tauri/plugins/vpn` (the Kotlin VPN service and plugin) and `src-tauri/src/android.rs`.
+
+How it works: the core is the ordinary Xray binary, shipped as `libxray.so` because Android
+only runs programs from the package's native-library folder (`node tools/fetch-xray.mjs
+--android` puts it there). The VPN service creates the tunnel device and hands its file
+descriptor to Rust, where tun2proxy turns the packets into SOCKS connections to the core.
+The app excludes itself from the VPN, so the core reaches the server directly.
+
+`.github/workflows/android.yml` builds a debug APK and runs `tools/android-e2e.sh` on an
+emulator: a VLESS server is started on the runner, the app is told through `autotest.json`
+(debug builds only, see `autotest` in `src-tauri/src/lib.rs`) to add it, connect, hold and
+disconnect, and the script checks the server's log for another app's request. It then builds
+the release APKs, signs them with the key in the repository secrets
+(`ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`) and starts the signed build once.
+
+Two things learnt the hard way about the emulator: use the plain `default` system image (with
+Google's services the emulator stalls, and when the system kills a stalled Google process it
+takes every app that depends on it along), and do not set `hide_error_dialogs`, which turns
+those stalls into silent kills.
+
 ## Generated assets
 
 - `python tools/gen_map.py` rebuilds `src/assets/world.json` from Natural Earth outlines.
@@ -56,6 +80,7 @@ folder (`%APPDATA%\dev.quadra.client` on Windows).
 ## Releases
 
 Pushing a tag `vX.Y.Z` runs `.github/workflows/release.yml`: it builds the installers for
-Windows, macOS (Apple silicon and Intel) and Linux and attaches them to a draft release.
+Windows, macOS (Apple silicon and Intel) and Linux and attaches them to a draft release;
+`android.yml` adds the signed APK to the same release.
 Keep the version in `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`
 in step with the tag.

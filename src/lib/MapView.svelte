@@ -618,7 +618,19 @@
     border-color: var(--line-2);
     color: var(--text-2);
   }
+  .banner {
+    max-width: calc(100% - 24px);
+    white-space: nowrap;
+  }
+  .banner span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .banner .btn {
     height: 28px;
+    flex: none;
+  }
+  :global([data-platform='android']) .banner {
+    top: 12px;
   }
 </style>

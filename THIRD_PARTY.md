@@ -9,6 +9,7 @@ following, each under its own terms.
 | **Wintun** (`wintun.dll`, Windows only), the tunnel driver used by the all-traffic mode | Shipped inside the Xray-core Windows archive; <https://www.wintun.net> | Prebuilt binaries licence, installed as `LICENSE-wintun.txt` |
 | **geoip.dat**, **geosite.dat**, the address and domain lists used for routing rules and for placing servers on the map | Shipped inside the Xray-core archives | See the Xray-core project |
 | **Natural Earth** country outlines (`tools/ne_110m_countries.geojson`), from which the dot map is generated | <https://www.naturalearthdata.com> | Public domain |
+| **tun2proxy** (Android only), which turns packets from the system VPN into connections to the core | <https://github.com/tun2proxy/tun2proxy>, built from source as a Rust dependency | MIT |
 | **Tauri**, **Svelte**, **Vite** and the Rust crates listed in `src-tauri/Cargo.toml` | crates.io, npm | MIT / Apache-2.0 and similar, see each package |
 
 The startup cube, the icons, the flags and the map rendering were made for this project.

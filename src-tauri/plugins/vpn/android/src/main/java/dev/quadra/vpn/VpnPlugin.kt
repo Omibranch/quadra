@@ -5,8 +5,13 @@ import android.content.Intent
 import android.net.Uri
 import android.net.VpnService
 import android.os.Build
+import android.view.View
+import android.webkit.WebView
 import androidx.activity.result.ActivityResult
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -29,6 +34,30 @@ class OpenArgs {
 @TauriPlugin
 class VpnPlugin(private val activity: Activity) : Plugin(activity) {
     private var pending: StartArgs? = null
+
+    /**
+     * The window is drawn edge to edge, and the webview knows nothing of the status bar, the
+     * navigation buttons or the keyboard. Keep the page clear of all three.
+     */
+    override fun load(webView: WebView) {
+        val background = 0xFF090C0B.toInt()
+        val root = activity.findViewById<View>(android.R.id.content)
+        activity.window.decorView.setBackgroundColor(background)
+        root.setBackgroundColor(background)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val bars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime()
+            )
+            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            WindowInsetsCompat.CONSUMED
+        }
+        ViewCompat.requestApplyInsets(root)
+        // light icons on our dark bars
+        WindowInsetsControllerCompat(activity.window, root).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+        }
+    }
 
     /** Paths and device facts the Rust side cannot find out on its own. */
     @Command
