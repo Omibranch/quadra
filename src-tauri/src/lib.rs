@@ -376,6 +376,23 @@ fn open_url(app: AppHandle, url: String) -> bool {
     }
 }
 
+/// Programs to choose from in the exclusions: `[{id, name, icon?}]`. The id is what the
+/// setting stores (an executable name, or a package name on Android).
+#[tauri::command]
+async fn list_apps(app: AppHandle) -> Result<Value, String> {
+    #[cfg(target_os = "android")]
+    {
+        let handle = app.clone();
+        return tokio::task::spawn_blocking(move || android::list_apps(&handle)).await.map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        let apps = tokio::task::spawn_blocking(sys::list_apps).await.map_err(|e| e.to_string())?;
+        Ok(json!(apps.into_iter().map(|(id, name)| json!({"id": id, "name": name})).collect::<Vec<_>>()))
+    }
+}
+
 #[tauri::command]
 fn clipboard() -> String {
     sys::clipboard_text()
@@ -420,7 +437,8 @@ fn show_main(app: &AppHandle) {
 /// Development aid, debug builds only: a file `autotest.json` in the data folder
 /// (`{"link": "...", "connect": true, "hold": 30}`) is imported at startup, the connection is made, and the
 /// outcome is written next to it as `autotest-result.json`. This is how the Android build is
-/// exercised on an emulator, where nobody is there to tap.
+/// exercised on an emulator, where nobody is there to tap. With `"exclude": ["some.app"]` it then
+/// connects a second time with those programs in the exclusions (`autotest-excluded.json`).
 #[cfg(debug_assertions)]
 async fn autotest(app: AppHandle, ctx: Arc<Ctx>) {
     let Ok(text) = std::fs::read_to_string(ctx.dir.join("autotest.json")) else { return };
@@ -444,10 +462,12 @@ async fn autotest(app: AppHandle, ctx: Arc<Ctx>) {
     changed(&app, &ctx);
     if job["connect"].as_bool().unwrap_or(false) {
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-        let result = core::connect(app.clone(), ctx.clone(), id).await;
+        let result = core::connect(app.clone(), ctx.clone(), id.clone()).await;
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         let status = serde_json::to_value(&*ctx.status.lock().unwrap()).unwrap_or_default();
-        report(json!({"stage": "connect", "result": result.err(), "status": status}));
+        // how many programs the exclusions would offer to choose from
+        let apps = list_apps(app.clone()).await.ok().and_then(|v| v.as_array().map(|a| a.len()));
+        report(json!({"stage": "connect", "result": result.err(), "status": status, "apps": apps}));
         // "hold": seconds to stay connected before disconnecting again, to check the way back
         if let Some(hold) = job["hold"].as_u64() {
             tokio::time::sleep(std::time::Duration::from_secs(hold)).await;
@@ -455,6 +475,16 @@ async fn autotest(app: AppHandle, ctx: Arc<Ctx>) {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             let status = serde_json::to_value(&*ctx.status.lock().unwrap()).unwrap_or_default();
             let _ = std::fs::write(ctx.dir.join("autotest-disconnect.json"), json!({"stage": "disconnect", "status": status}).to_string());
+            if let Some(list) = job["exclude"].as_array() {
+                tokio::time::sleep(std::time::Duration::from_secs(job["pause"].as_u64().unwrap_or(10))).await;
+                ctx.data.lock().unwrap().settings.bypass_apps = list.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+                let result = core::connect(app.clone(), ctx.clone(), id).await;
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                let status = serde_json::to_value(&*ctx.status.lock().unwrap()).unwrap_or_default();
+                let _ = std::fs::write(ctx.dir.join("autotest-excluded.json"), json!({"stage": "excluded", "result": result.err(), "status": status}).to_string());
+                tokio::time::sleep(std::time::Duration::from_secs(hold)).await;
+                core::disconnect(&app, &ctx, None).await;
+            }
         }
     } else {
         report(json!({"stage": "imported"}));
@@ -624,7 +654,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_state, ready, splash, save_settings, add_subscription, refresh_subscription, delete_subscription, delete_server,
-            import_text, connect, disconnect, ping, locate_home, share, open_url, clipboard, get_logs, clear_logs, relaunch_admin, quit
+            import_text, connect, disconnect, ping, locate_home, share, open_url, list_apps, clipboard, get_logs, clear_logs, relaunch_admin, quit
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

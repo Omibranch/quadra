@@ -75,19 +75,35 @@ fn cleaned(list: &[String]) -> Vec<String> {
     list.iter().map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).collect()
 }
 
-/// The exclusions: listed programs and domains go straight out, whatever else the rules say.
-fn bypass_rules(s: &Settings, direct: &str) -> Vec<Value> {
-    let mut out = vec![];
-    let apps = cleaned(&s.bypass_apps);
-    if !apps.is_empty() {
-        out.push(json!({"type": "field", "process": apps, "outboundTag": direct}));
-    }
+/// The exclusions, as rules that go before everything else and rules that go after everything.
+///
+/// "exclude": the listed programs and domains go straight out. "only": the listed ones go
+/// through the server and a last rule sends the rest straight out. On Android the system VPN
+/// itself decides per app, so programs are not turned into rules there.
+fn bypass_rules(s: &Settings, proxy: &str, direct: &str) -> (Vec<Value>, Vec<Value>) {
+    let apps = if cfg!(target_os = "android") { vec![] } else { cleaned(&s.bypass_apps) };
     let domains: Vec<String> = cleaned(&s.bypass_domains).into_iter()
         .map(|d| if d.contains(':') { d } else { format!("domain:{}", d.trim_start_matches("*.")) }).collect();
-    if !domains.is_empty() {
-        out.push(json!({"type": "field", "domain": domains, "outboundTag": direct}));
+    let only = s.bypass_mode == "only";
+    // "only" with an empty list would cut everything off; an empty list means the mode is not in use.
+    if only && apps.is_empty() && domains.is_empty() {
+        return (vec![], vec![]);
     }
-    out
+    // On Android the chosen apps are all the VPN carries. Narrowing them further to the listed
+    // domains would leave those very apps without the server, so there the apps decide alone.
+    if only && cfg!(target_os = "android") && !cleaned(&s.bypass_apps).is_empty() {
+        return (vec![], vec![]);
+    }
+    let target = if only { proxy } else { direct };
+    let mut first = vec![];
+    if !apps.is_empty() {
+        first.push(json!({"type": "field", "process": apps, "outboundTag": target}));
+    }
+    if !domains.is_empty() {
+        first.push(json!({"type": "field", "domain": domains, "outboundTag": target}));
+    }
+    let last = if only { vec![json!({"type": "field", "network": "tcp,udp", "outboundTag": direct})] } else { vec![] };
+    (first, last)
 }
 
 fn add_counters(cfg: &mut Map<String, Value>, metrics_port: u16) {
@@ -111,7 +127,8 @@ fn from_link(outbound: &Value, s: &Settings, tun: bool) -> Map<String, Value> {
     if tun {
         rules.push(json!({"type": "field", "inboundTag": [TUN_TAG], "port": 53, "outboundTag": "dns-out"}));
     }
-    rules.extend(bypass_rules(s, "direct"));
+    let (bypass_first, bypass_last) = bypass_rules(s, "proxy", "direct");
+    rules.extend(bypass_first);
     rules.extend(user_rules(s, "proxy", "direct", "block"));
     if s.routing != "all" {
         // spelled out rather than "geoip:private": the core then has no 16 MB file to open at start
@@ -121,6 +138,7 @@ fn from_link(outbound: &Value, s: &Settings, tun: bool) -> Map<String, Value> {
         rules.push(json!({"type": "field", "domain": ["geosite:category-ru", "domain:ru", "domain:su", "domain:xn--p1ai"], "outboundTag": "direct"}));
         rules.push(json!({"type": "field", "ip": ["geoip:ru"], "outboundTag": "direct"}));
     }
+    rules.extend(bypass_last);
     let mut proxy = outbound.clone();
     proxy["tag"] = json!("proxy");
     let mut inbounds = vec![
@@ -216,8 +234,10 @@ fn from_full(config: &Value, s: &Settings, tun: bool) -> Result<Map<String, Valu
             "quadra-block".into()
         });
         let routing = cfg.entry("routing").or_insert_with(|| json!({}));
-        let mut rules = bypass_rules(s, &direct);
+        let (mut rules, bypass_last) = bypass_rules(s, &proxy, &direct);
         rules.extend(user_rules(s, &proxy, &direct, &block));
+        // in "only" mode the rest must not reach the provider's own rules, which would proxy it
+        rules.extend(bypass_last);
         rules.extend(routing["rules"].as_array().cloned().unwrap_or_default());
         routing["rules"] = json!(rules);
         cfg.insert("outbounds".into(), json!(outbounds));
@@ -273,6 +293,29 @@ mod tests {
         assert!(with_tun["routing"]["rules"][0].get("inboundTag").is_none());
         let without = build(&server, &plain, false, 4000).unwrap();
         assert_eq!(without["routing"]["rules"][1]["inboundTag"], json!(["socks", "http"]));
+    }
+
+    #[test]
+    fn only_mode_sends_the_listed_through_the_server_and_the_rest_past_it() {
+        let s = Settings { bypass_mode: "only".into(), bypass_apps: vec!["Steam.exe".into()], bypass_domains: vec!["example.org".into()], ..Default::default() };
+        let link = Server { outbound: Some(json!({"protocol": "vless"})), ..Default::default() };
+        let cfg = build(&link, &s, false, 4000).unwrap();
+        let rules = cfg["routing"]["rules"].as_array().unwrap();
+        assert_eq!(rules[0], json!({"type": "field", "process": ["Steam.exe"], "outboundTag": "proxy"}));
+        assert_eq!(rules[1]["outboundTag"], "proxy");
+        assert_eq!(rules.last().unwrap(), &json!({"type": "field", "network": "tcp,udp", "outboundTag": "direct"}));
+        // nothing listed: the mode is simply not in use
+        let empty = Settings { bypass_mode: "only".into(), ..Default::default() };
+        let cfg = build(&link, &empty, false, 4000).unwrap();
+        assert!(cfg["routing"]["rules"].as_array().unwrap().iter().all(|r| r.get("network").is_none()));
+        // a provider's config: its own rules stay, but after our catch-all
+        let full = Server { config: Some(json!({"outbounds": [{"tag": "px", "protocol": "vless"}, {"tag": "direct", "protocol": "freedom"}],
+            "routing": {"rules": [{"type": "field", "inboundTag": ["socks"], "balancerTag": "lb"}]}})), ..Default::default() };
+        let cfg = build(&full, &s, false, 4000).unwrap();
+        let rules = cfg["routing"]["rules"].as_array().unwrap();
+        assert_eq!(rules[0]["outboundTag"], "px");
+        assert_eq!(rules[2], json!({"type": "field", "network": "tcp,udp", "outboundTag": "direct"}));
+        assert_eq!(rules[3]["balancerTag"], "lb");
     }
 
     #[test]

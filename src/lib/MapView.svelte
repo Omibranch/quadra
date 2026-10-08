@@ -1,7 +1,7 @@
 <script>
   // The world as a grid of squares. "You" are a 3x3 block; connecting draws a one-cell path to
   // the server's country and the block walks it, switching the path off behind itself.
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import world from '../assets/world.json';
   import { app, select, serverById, toast, save } from './store.svelte.js';
   import { countryName } from './flags.js';
@@ -51,7 +51,14 @@
   let tip = $state(null);
   let ctx;
   let base;
-  let geo = { cell: 5, sq: 4, ox: 0, oy: 0, W: 0, H: 0, dpr: 1 };
+  let geo = { cell: 5, sq: 4, ox: 0, oy: 0, W: 0, H: 0, dpr: 1, mapW: 0, mapH: 0 };
+  // On a small screen the whole world would come out as specks, so the cells keep a size worth
+  // looking at and the window shows a part of the map: a camera that follows the block.
+  let cam = null; // where the map's corner is right now, in device pixels
+  let drag = null; // a finger moving the map
+  let nudge = [0, 0]; // how far the user has dragged away from where the camera would sit
+  let touch = false;
+  let tipTimer;
   let colors = null;
   let glow = null;
   let hovered = 0;
@@ -103,30 +110,54 @@
     if (!W || !H) return;
     canvas.width = W;
     canvas.height = H;
-    const cell = Math.max(3, Math.floor(Math.min((W * 1.0) / cols, (H * 0.9) / rows)));
+    const fit = Math.max(3, Math.floor(Math.min((W * 1.0) / cols, (H * 0.9) / rows)));
+    const cell = Math.max(fit, wrap.clientWidth <= 720 ? Math.round(5 * dpr) : 0);
     const gap = cell >= 8 ? 2 : 1;
-    geo = {
-      cell, sq: cell - gap, W, H, dpr,
-      ox: Math.round((W - cols * cell) / 2),
-      oy: Math.round((H - rows * cell) / 2 - H * 0.035),
-    };
+    geo = { cell, sq: cell - gap, W, H, dpr, mapW: cols * cell, mapH: rows * cell, ox: 0, oy: 0 };
+    cam = null;
+    aim();
     ctx = canvas.getContext('2d');
     drawBase();
+  }
+
+  /** The cell the camera keeps in the middle when the map does not fit. */
+  function focus() {
+    if (phase !== 'idle' && blockCell) return blockCell;
+    return home ?? [cols * 0.54, rows * 0.34];
+  }
+
+  /** Moves the camera towards its place; true while it is still on the way. */
+  function aim() {
+    const { cell, W, H, mapW, mapH } = geo;
+    const [fc, fr] = focus();
+    const place = (view, map, at, drift, shift) => {
+      if (map <= view) return (view - map) / 2 - shift;
+      return Math.max(view - map, Math.min(0, view / 2 - (at + 0.5) * cell + drift));
+    };
+    const tx = place(W, mapW, fc, nudge[0], 0);
+    const ty = place(H, mapH, fr, nudge[1], H * 0.035);
+    if (!cam || drag) cam = [tx, ty];
+    const [dx, dy] = [tx - cam[0], ty - cam[1]];
+    const moving = Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5;
+    cam = moving ? [cam[0] + dx * 0.16, cam[1] + dy * 0.16] : [tx, ty];
+    geo.ox = Math.round(cam[0]);
+    geo.oy = Math.round(cam[1]);
+    return moving;
   }
 
   function drawBase() {
     if (!colors || !geo.W) return;
     base = base ?? document.createElement('canvas');
-    base.width = geo.W;
-    base.height = geo.H;
+    base.width = geo.mapW;
+    base.height = geo.mapH;
     const b = base.getContext('2d');
-    const { cell, sq, ox, oy } = geo;
+    const { cell, sq } = geo;
     for (const pass of [0, 1, 2]) {
       b.fillStyle = [colors.land, colors.served, colors.chosen][pass];
       for (const i of land) {
         const c = cells[i];
         const level = c === selectedCountry ? 2 : serverCountries.has(c) ? 1 : 0;
-        if (level === pass) b.fillRect(ox + (i % cols) * cell, oy + Math.floor(i / cols) * cell, sq, sq);
+        if (level === pass) b.fillRect((i % cols) * cell, Math.floor(i / cols) * cell, sq, sq);
       }
     }
     dirty = true;
@@ -182,6 +213,7 @@
 
   function onStatus(state, serverId, error, exit) {
     const now = performance.now();
+    if (state !== seen) nudge = [0, 0];
     if (state === 'connecting' && seen !== 'connecting') {
       rings = [];
       pendingConfirm = false;
@@ -304,7 +336,7 @@
   function draw(now) {
     const full = app.settings?.effects !== 'lite';
     ctx.clearRect(0, 0, geo.W, geo.H);
-    if (base) ctx.drawImage(base, 0, 0);
+    if (base) ctx.drawImage(base, geo.ox, geo.oy);
 
     if (full && phase !== 'fail') {
       // a slow diagonal sweep of light, and the odd cell that flickers
@@ -414,10 +446,11 @@
     frame = 0;
     if (!ctx || !colors || paused || document.hidden) return;
     step(now);
+    const panning = aim();
     draw(now);
     dirty = false;
     const moving = phase !== 'idle' && phase !== 'on';
-    if (app.settings?.effects !== 'lite' || moving || rings.length) frame = requestAnimationFrame(loop);
+    if (app.settings?.effects !== 'lite' || moving || panning || rings.length) frame = requestAnimationFrame(loop);
   }
 
   function wake() {
@@ -436,33 +469,83 @@
     return app.servers.filter((s) => indexOf[alias[s.cc] ?? s.cc] === index);
   }
 
+  function countryTip(index) {
+    const list = serversIn(index);
+    const pings = list.map((s) => s.ping).filter((p) => p > 0);
+    return { cc: countries[index - 1], index, n: list.length, best: pings.length ? Math.min(...pings) : null };
+  }
+
+  function placeTip(e) {
+    if (!tipEl) return;
+    const rect = wrap.getBoundingClientRect();
+    const x = Math.max(8, Math.min(e.clientX - rect.left + 16, rect.width - (touch ? 250 : 220)));
+    const y = Math.min(e.clientY - rect.top + 18, rect.height - 56);
+    tipEl.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+  }
+
+  function onDown(e) {
+    touch = e.pointerType === 'touch';
+    if (geo.mapW <= geo.W && geo.mapH <= geo.H) return;
+    drag = { x: e.clientX, y: e.clientY, from: [...nudge], camFrom: cam ? [...cam] : [0, 0], moved: false };
+    try {
+      canvas.setPointerCapture(e.pointerId);
+    } catch {}
+  }
+
+  function onUp() {
+    // the click that follows a drag is not a click on a country
+    if (drag?.moved) setTimeout(() => (drag = null), 0);
+    else drag = null;
+  }
+
   function onMove(e) {
+    if (drag) {
+      const [dx, dy] = [(e.clientX - drag.x) * geo.dpr, (e.clientY - drag.y) * geo.dpr];
+      if (!drag.moved && Math.hypot(dx, dy) < 8 * geo.dpr) return;
+      if (!drag.moved) {
+        // from here the map goes where the finger goes: count the drift from where it stands now
+        const [fc, fr] = focus();
+        drag.centre = [geo.W / 2 - (fc + 0.5) * geo.cell, geo.H / 2 - (fr + 0.5) * geo.cell];
+        drag.base = [drag.camFrom[0] - drag.centre[0], drag.camFrom[1] - drag.centre[1]];
+        drag.moved = true;
+        tip = null;
+      }
+      // no further than the edge of the map, so that dragging back answers at once
+      const held = (view, map, centre, drift) => (map > view ? Math.max(view - map, Math.min(0, centre + drift)) - centre : 0);
+      nudge = [held(geo.W, geo.mapW, drag.centre[0], drag.base[0] + dx), held(geo.H, geo.mapH, drag.centre[1], drag.base[1] + dy)];
+      wake();
+      return;
+    }
+    if (touch) return;
     const cell = cellFromEvent(e);
     const index = cell ? cells[cell[1] * cols + cell[0]] : 0;
     if (index !== hovered) {
       hovered = index;
-      if (index) {
-        const list = serversIn(index);
-        const pings = list.map((s) => s.ping).filter((p) => p > 0);
-        tip = { cc: countries[index - 1], n: list.length, best: pings.length ? Math.min(...pings) : null };
-      } else tip = null;
+      tip = index ? countryTip(index) : null;
       canvas.style.cursor = app.pickHome ? 'crosshair' : index && serverCountries.has(index) ? 'pointer' : 'default';
       wake();
     }
-    if (tipEl) {
-      const rect = wrap.getBoundingClientRect();
-      const x = Math.min(e.clientX - rect.left + 16, rect.width - 220);
-      tipEl.style.transform = `translate(${Math.round(x)}px, ${Math.round(e.clientY - rect.top + 18)}px)`;
-    }
+    placeTip(e);
   }
 
   function onLeave() {
+    if (touch) return;
     hovered = 0;
     tip = null;
     wake();
   }
 
+  function pick(index) {
+    const list = serversIn(index);
+    if (!list.length) return;
+    const reachable = list.filter((s) => s.ping > 0).sort((a, b) => a.ping - b.ping);
+    const server = reachable[0] ?? list[0];
+    select(server.id);
+    toast(`Выбран сервер: ${server.name}`);
+  }
+
   function onClick(e) {
+    if (drag?.moved) return;
     const cell = cellFromEvent(e);
     if (!cell) return;
     const index = cells[cell[1] * cols + cell[0]];
@@ -474,10 +557,30 @@
       toast('Местоположение задано', 'ok');
       return;
     }
-    const list = serversIn(index);
-    if (!list.length) return;
-    const reachable = list.filter((s) => s.ping > 0).sort((a, b) => a.ping - b.ping);
-    select((reachable[0] ?? list[0]).id);
+    if (!touch) return pick(index);
+    // A finger lands on the map by accident far too easily to change the server with it.
+    // A tap only says what is there; choosing takes the button in the note.
+    clearTimeout(tipTimer);
+    hovered = index;
+    tip = index ? countryTip(index) : null;
+    wake();
+    if (tip) {
+      tick().then(() => placeTip(e));
+      tipTimer = setTimeout(() => {
+        tip = null;
+        hovered = 0;
+        wake();
+      }, 3200);
+    }
+  }
+
+  function pickFromTip() {
+    clearTimeout(tipTimer);
+    const index = tip?.index;
+    tip = null;
+    hovered = 0;
+    wake();
+    if (index) pick(index);
   }
 
   onMount(() => {
@@ -533,10 +636,11 @@
 </script>
 
 <div class="map" bind:this={wrap} class:pick={app.pickHome}>
-  <canvas bind:this={canvas} onpointermove={onMove} onpointerleave={onLeave} onclick={onClick}></canvas>
+  <canvas bind:this={canvas} onpointerdown={onDown} onpointerup={onUp} onpointercancel={onUp} onpointermove={onMove}
+          onpointerleave={onLeave} onclick={onClick}></canvas>
 
   {#if tip && !app.pickHome}
-    <div class="tip" bind:this={tipEl}>
+    <div class="tip" class:touch bind:this={tipEl}>
       <Flag cc={tip.cc} cell={2} />
       <div>
         <b>{countryName(tip.cc)}</b>
@@ -544,6 +648,7 @@
           {#if tip.n}{count(tip.n, 'сервер', 'сервера', 'серверов')}{#if tip.best} · {tip.best} мс{/if}{:else}нет серверов{/if}
         </span>
       </div>
+      {#if touch && tip.n}<button class="btn" onclick={pickFromTip}>Выбрать</button>{/if}
     </div>
   {/if}
 
@@ -570,6 +675,15 @@
     width: 100%;
     height: 100%;
     display: block;
+    touch-action: none;
+  }
+  .tip.touch {
+    pointer-events: auto;
+    padding-right: 8px;
+  }
+  .tip .btn {
+    height: 30px;
+    margin-left: 6px;
   }
   .tip {
     position: absolute;

@@ -55,4 +55,26 @@
     overflow-y: auto;
     padding: 8px 28px 40px;
   }
+  /* a narrow screen: the panel's own controls go under its title, the close button stays put */
+  @media (max-width: 720px) {
+    header {
+      height: auto;
+      min-height: 56px;
+      flex-wrap: wrap;
+      gap: 0 8px;
+      padding: 0 8px 0 18px;
+    }
+    h2 {
+      line-height: 56px;
+    }
+    .actions {
+      order: 3;
+      flex: 1 1 100%;
+      flex-wrap: wrap;
+      padding-right: 10px;
+    }
+    .actions:not(:empty) {
+      padding-bottom: 12px;
+    }
+  }
 </style>

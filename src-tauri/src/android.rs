@@ -43,11 +43,21 @@ pub fn open_url(app: &AppHandle, url: &str) -> bool {
     allowed && plugin(app).call::<serde_json::Value>("openUrl", json!({ "url": url })).is_ok()
 }
 
+/// Installed apps that have a launcher icon: `[{id, name, icon}]`, for the exclusions.
+pub fn list_apps(app: &AppHandle) -> Result<serde_json::Value, String> {
+    plugin(app).call::<serde_json::Value>("listApps", json!({})).map(|v| v["apps"].clone())
+}
+
 /// Brings the system VPN up (asking the user the first time) and starts carrying its packets
 /// to the core. Returns what undoes it.
 pub async fn start_tunnel(app: &AppHandle, ctx: &Arc<Ctx>, socks_port: u16, gen: u64) -> Result<Box<dyn FnOnce() + Send + Sync>, String> {
     let handle = app.clone();
-    let started: Started = tokio::task::spawn_blocking(move || plugin(&handle).call("start", json!({ "mtu": MTU })))
+    // which apps the VPN takes: the system does this itself, per app
+    let (only, apps) = {
+        let d = ctx.data.lock().unwrap();
+        (d.settings.bypass_mode == "only", d.settings.bypass_apps.clone())
+    };
+    let started: Started = tokio::task::spawn_blocking(move || plugin(&handle).call("start", json!({ "mtu": MTU, "only": only, "apps": apps })))
         .await
         .map_err(|e| e.to_string())??;
 

@@ -24,6 +24,7 @@ export const app = $state({
   pinging: false,
   busy: {},
   pickHome: false,
+  apps: null, // programs to choose from in the exclusions, loaded when first needed
   now: Date.now(),
   logTick: 0,
 });
@@ -69,6 +70,7 @@ function applyData(d, first = false) {
     app.relaunchForTun = !!d.relaunchForTun;
     // a phone has one mode: the system VPN
     if (app.platform === 'android') app.settings.mode = 'tun';
+    app.settings.bypass_mode ??= 'exclude';
     app.version = d.version;
     app.userAgent = d.userAgent;
   } else {
@@ -190,6 +192,15 @@ export async function locateHome() {
     fail(e);
     return false;
   }
+}
+
+let appsLoading = null;
+/** The programs installed here, for the exclusions: `[{id, name, icon?}]`. Asked for once. */
+export function loadApps() {
+  appsLoading ??= invoke('list_apps')
+    .then((list) => (app.apps = list ?? []))
+    .catch(() => (app.apps = []));
+  return appsLoading;
 }
 
 export async function copy(text, done = 'Скопировано') {

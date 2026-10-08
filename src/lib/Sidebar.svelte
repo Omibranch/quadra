@@ -1,5 +1,5 @@
 <script>
-  import { app, toggle, target, pingAll, serverById } from './store.svelte.js';
+  import { app, toggle, target, pingAll, serverById, refreshAll } from './store.svelte.js';
   import { countryName } from './flags.js';
   import { duration, protoLabel } from './format.js';
   import Flag from './Flag.svelte';
@@ -11,6 +11,17 @@
   const shown = $derived(phase === 'off' ? target() : (serverById(app.status.server) ?? target()));
   const label = $derived({ off: 'Не подключено', connecting: 'Подключаюсь…', on: 'Подключено' }[phase]);
   const elapsed = $derived(phase === 'on' ? duration((app.now - app.status.since * 1000) / 1000) : '');
+  const phone = $derived(app.platform === 'android');
+  const refreshing = $derived(app.subs.some((s) => app.busy['sub:' + s.id]));
+
+  // Where the traffic really comes out. A provider may name a server after one country and
+  // send it out through another; when that happens, say so instead of repeating the name.
+  const same = (a, b) => ({ UK: 'GB' }[a] ?? a) === ({ UK: 'GB' }[b] ?? b);
+  const elsewhere = $derived.by(() => {
+    const exit = app.status.exit;
+    if (phase !== 'on' || !exit?.cc || !shown?.cc || shown.cc === 'EU') return '';
+    return same(exit.cc, shown.cc) ? '' : countryName(exit.cc);
+  });
 
   const nav = [
     { id: null, icon: 'servers', title: 'Карта' },
@@ -29,7 +40,9 @@
           <b>{shown.name}</b>
           <span class="state">{label}{#if phase === 'on'}<em class="mono">{elapsed}</em>{/if}</span>
           <span class="detail">
-            {#if phase === 'on'}
+            {#if elsewhere}
+              {[`выход: ${elsewhere}`, app.status.exit.ip].filter(Boolean).join(' · ')}
+            {:else if phase === 'on'}
               {[app.status.exit?.ip ?? countryName(shown.cc), shown.ping > 0 ? `${shown.ping} мс` : ''].filter(Boolean).join(' · ')}
             {:else}
               {[countryName(shown.cc), protoLabel(shown)].filter(Boolean).join(' · ')}
@@ -41,13 +54,13 @@
       {/if}
     </div>
 
-    <button class="connect" onclick={toggle}>
+    <button class="connect" onclick={toggle} aria-label={phase === 'off' ? 'Подключить' : phase === 'on' ? 'Отключить' : 'Отмена'}>
       {#if phase === 'connecting'}
-        <Loader cell={4} />Отмена
+        <Loader cell={4} /><span>Отмена</span>
       {:else if phase === 'on'}
-        <Icon name="power" />Отключить
+        <Icon name="power" size={phone ? 22 : 16} /><span>Отключить</span>
       {:else}
-        <Icon name="power" />{shown ? 'Подключить' : 'Добавить сервер'}
+        <Icon name={shown || !phone ? 'power' : 'plus'} size={phone ? 22 : 16} /><span>{shown ? 'Подключить' : 'Добавить сервер'}</span>
       {/if}
     </button>
   </section>
@@ -58,6 +71,11 @@
       <input placeholder="Поиск" bind:value={app.query} spellcheck="false" />
       {#if app.query}<button class="ibtn sm" title="Очистить" onclick={() => (app.query = '')}><Icon name="close" size={12} /></button>{/if}
     </label>
+    {#if phone && app.subs.length}
+      <button class="ibtn" title="Обновить подписки" onclick={refreshAll}>
+        {#if refreshing}<Loader cell={3} />{:else}<Icon name="refresh" />{/if}
+      </button>
+    {/if}
     <button class="ibtn" title="Проверить пинг всех серверов" disabled={!app.servers.length} onclick={() => pingAll()}>
       {#if app.pinging}<Loader cell={3} />{:else}<Icon name="bolt" />{/if}
     </button>
@@ -176,6 +194,37 @@
     background: var(--danger-soft);
     color: var(--danger);
     border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+  }
+  /* a phone: the name on the left, one square button on the right */
+  :global([data-platform='android']) .status {
+    flex-direction: row;
+    align-items: center;
+    padding: 12px 14px 12px 16px;
+  }
+  :global([data-platform='android']) .who {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    align-items: center;
+  }
+  :global([data-platform='android']) .names {
+    gap: 2px;
+  }
+  :global([data-platform='android']) .connect {
+    width: 54px;
+    height: 54px;
+    flex: none;
+  }
+  :global([data-platform='android']) .connect span {
+    display: none;
+  }
+  :global([data-platform='android']) .tools {
+    padding: 0 8px 8px 16px;
+    gap: 0;
+  }
+  :global([data-platform='android']) .search {
+    height: 38px;
+    margin-right: 4px;
   }
   .tools {
     display: flex;

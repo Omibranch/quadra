@@ -256,6 +256,54 @@ mod tests {
     }
 }
 
+/// Programs the user could want to exclude: what is in the Start menu and what is running with
+/// a window right now. The routing rule matches by executable name, so that is the id.
+pub fn list_apps() -> Vec<(String, String)> {
+    use std::os::windows::process::CommandExt;
+    // WScript.Shell is the simplest thing that can read where a shortcut points
+    let script = r#"
+$sh = New-Object -ComObject WScript.Shell
+$found = @{}
+$win = $env:windir
+$dirs = @([Environment]::GetFolderPath('CommonPrograms'), [Environment]::GetFolderPath('Programs'))
+Get-ChildItem $dirs -Recurse -Filter *.lnk -ErrorAction SilentlyContinue | ForEach-Object {
+  try { $l = $sh.CreateShortcut($_.FullName); $t = $l.TargetPath; $a = $l.Arguments } catch { $t = ''; $a = '' }
+  # parts of Windows itself, and the icon stubs that installer-made shortcuts point at
+  if ($t -notlike '*.exe' -or $t -like "$win\*" -or $_.BaseName -match 'uninstall|удал|readme|license|help|manual|documentation') { return }
+  $exe = [IO.Path]::GetFileName($t)
+  # an updater that starts the real program: the program is named in its arguments
+  if ($exe -ieq 'Update.exe') {
+    if ($a -match '--processStart\s+"?([^"]+?\.exe)') { $exe = $Matches[1] } else { return }
+  }
+  $k = $exe.ToLower()
+  # several shortcuts to one program: the shortest name is the program's own
+  if (-not $found.ContainsKey($k) -or $found[$k][1].Length -gt $_.BaseName.Length) { $found[$k] = @($exe, $_.BaseName) }
+}
+Get-Process | Where-Object { $_.MainWindowTitle -and $_.Path -and $_.Path -notlike "$win\*" } | ForEach-Object {
+  $exe = [IO.Path]::GetFileName($_.Path)
+  $k = $exe.ToLower()
+  if (-not $found.ContainsKey($k)) {
+    $name = $null
+    try { $name = $_.MainModule.FileVersionInfo.FileDescription } catch { }
+    if (-not $name) { $name = $_.ProcessName }
+    $found[$k] = @($exe, $name)
+  }
+}
+$found.Values | ForEach-Object { "$($_[0])`t$($_[1])" }
+"#;
+    let out = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &format!("[Console]::OutputEncoding = [Text.Encoding]::UTF8; {script}")])
+        .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+        .output();
+    let Ok(out) = out else { return vec![] };
+    let mut apps: Vec<(String, String)> = String::from_utf8_lossy(&out.stdout).lines()
+        .filter_map(|l| l.trim().split_once('\t').map(|(exe, name)| (exe.trim().to_string(), name.trim().to_string())))
+        .filter(|(exe, _)| !exe.is_empty())
+        .collect();
+    apps.sort_by_key(|(_, name)| name.to_lowercase());
+    apps
+}
+
 pub fn machine_guid() -> String {
     RegKey::predef(HKEY_LOCAL_MACHINE)
         .open_subkey_with_flags(r"SOFTWARE\Microsoft\Cryptography", KEY_READ | KEY_WOW64_64KEY)

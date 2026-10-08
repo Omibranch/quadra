@@ -4,6 +4,8 @@
 # file to add that server, connect, stay connected for a while and disconnect. While it is
 # connected another program on the phone makes a request, and the server's log has to show it:
 # that proves the whole chain, system VPN -> tun2proxy -> the core on the phone -> the server.
+# Then the app connects once more with that other program in its exclusions, and this time the
+# same request must go past the server.
 #   tools/android-e2e.sh <apk>
 set -u
 APK="$1"
@@ -12,6 +14,8 @@ OUT=android-e2e
 UUID=5783a3e7-e373-51cd-8642-c83782b807c5
 PORT=24443
 HOLD=45
+# the program whose request is watched: the shell user's package
+OTHER=com.android.shell
 mkdir -p "$OUT"
 
 # one plain HTTP request from the shell user, which is not our app and so goes through the VPN
@@ -46,7 +50,7 @@ adb shell appops set $PKG ACTIVATE_VPN allow
 adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS 2>/dev/null || true
 
 echo "== autotest file"
-JOB="{\"link\":\"vless://$UUID@10.0.2.2:$PORT?type=tcp&security=none&encryption=none#Test\",\"connect\":true,\"hold\":$HOLD}"
+JOB="{\"link\":\"vless://$UUID@10.0.2.2:$PORT?type=tcp&security=none&encryption=none#Test\",\"connect\":true,\"hold\":$HOLD,\"exclude\":[\"$OTHER\"],\"pause\":30}"
 for dir in files . app_data; do
   adb shell "run-as $PKG mkdir -p $dir" 2>/dev/null
   echo "$JOB" | adb shell "run-as $PKG sh -c 'cat > $dir/autotest.json'"
@@ -95,6 +99,20 @@ AFTER_LINES=$(grep -c "example.com:80" "$OUT/server-access.log")
 echo "direct reply: $REPLY_DIRECT"
 adb exec-out screencap -p > "$OUT/4-disconnected.png"
 
+echo "== wait for the second connection, with $OTHER excluded"
+EXCLUDED=""
+for i in $(seq 1 30); do
+  EXCLUDED=$(read_app_file autotest-excluded.json)
+  [ -n "$EXCLUDED" ] && break
+  sleep 2
+done
+echo "second connection: $EXCLUDED"
+TUN_EXCLUDED=$(adb shell ip addr 2>/dev/null | grep -cE "^[0-9]+: tun[0-9]")
+REPLY_EXCLUDED=$(request)
+EXCLUDED_LINES=$(grep -c "example.com:80" "$OUT/server-access.log")
+echo "reply with the program excluded: $REPLY_EXCLUDED"
+adb exec-out screencap -p > "$OUT/5-excluded.png"
+
 echo "== what the server saw"
 tail -12 "$OUT/server-access.log" | cut -c1-140
 
@@ -115,4 +133,9 @@ case "$GONE" in *'"state":"off"'*) check ok "the app reports disconnected" ;; *)
 [ "$TUN_AFTER" -eq 0 ] && [ "$VPN_AFTER" -eq 0 ] && check ok "the system VPN is gone after disconnecting" || check no "the system VPN is gone after disconnecting (tun=$TUN_AFTER vpn=$VPN_AFTER)"
 case "$REPLY_DIRECT" in HTTP/*) check ok "the network still works afterwards ($REPLY_DIRECT)" ;; *) check no "the network still works afterwards" ;; esac
 [ "$AFTER_LINES" -eq "$BEFORE_LINES" ] && check ok "and that request no longer goes through the server" || check no "and that request no longer goes through the server"
+case "$RESULT" in *'"apps":null'*|*'"apps":0'*) check no "the app can list the installed programs" ;; *'"apps":'*) check ok "the app can list the installed programs" ;; *) check no "the app can list the installed programs" ;; esac
+case "$EXCLUDED" in *'"state":"on"'*) check ok "connected again with a program excluded" ;; *) check no "connected again with a program excluded" ;; esac
+[ "$TUN_EXCLUDED" -ge 1 ] && check ok "the tunnel device exists again" || check no "the tunnel device exists again"
+case "$REPLY_EXCLUDED" in HTTP/*) check ok "the excluded program still gets an answer ($REPLY_EXCLUDED)" ;; *) check no "the excluded program still gets an answer" ;; esac
+[ "$EXCLUDED_LINES" -eq "$AFTER_LINES" ] && check ok "and its request goes past the server" || check no "and its request goes past the server (server saw $EXCLUDED_LINES, was $AFTER_LINES)"
 exit $FAIL

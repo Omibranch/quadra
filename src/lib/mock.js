@@ -11,7 +11,7 @@ const state = {
   settings: {
     theme: 'dark', accent: '#3ddc84', effects: 'full', mode: 'proxy', socks_port: 20808, http_port: 20809,
     allow_lan: false, routing: 'lan', rules: [{ kind: 'domain', value: 'example.org', action: 'direct' }],
-    bypass_apps: ['Steam.exe'], bypass_domains: ['example.org', 'bank.example'],
+    bypass_mode: 'exclude', bypass_apps: ['Steam.exe'], bypass_domains: ['example.org', 'bank.example'],
     dns: '1.1.1.1, 8.8.8.8', close_to_tray: true, autostart: false, autoconnect: false, send_hwid: true,
     user_agent: '', geo_lookup: true, home: { lat: 55.75, lon: 37.62, cc: 'RU', ip: '203.0.113.7', manual: false },
     sub_update_hours: 12, log_level: 'warning', selected: 'a2', collapsed: [],
@@ -48,7 +48,7 @@ const state = {
   elevated: false,
   platform: new URLSearchParams(location.search).get('platform') ?? 'windows',
   tiling: new URLSearchParams(location.search).has('tiling'),
-  relaunchForTun: true,
+  relaunchForTun: (new URLSearchParams(location.search).get('platform') ?? 'windows') === 'windows',
   version: '0.1.0',
   userAgent: 'Quadra/0.1.0',
 };
@@ -165,6 +165,19 @@ const commands = {
     return { text: `vless://00000000-0000-0000-0000-000000000000@${id}.example.net:443?type=tcp&security=reality#sample`, link: true, qr: { size, cells } };
   },
   open_url: () => true,
+  async list_apps() {
+    await wait(350);
+    if (state.platform === 'android') {
+      return ['Chrome|com.android.chrome', 'Telegram|org.telegram.messenger', 'YouTube|com.google.android.youtube', 'Банк|ru.bank.example',
+        'Госуслуги|ru.gosuslugi.example', 'Карты|com.maps.example', 'Камера|com.android.camera', 'Музыка|com.music.example',
+        'Почта|com.mail.example', 'Такси|com.taxi.example', 'Файлы|com.android.files', 'Часы|com.android.deskclock']
+        .map((l) => ({ name: l.split('|')[0], id: l.split('|')[1] }));
+    }
+    if (state.platform !== 'windows') return [];
+    return ['Discord|Discord.exe', 'Firefox|firefox.exe', 'Google Chrome|chrome.exe', 'Steam|Steam.exe', 'Telegram Desktop|Telegram.exe',
+      'Visual Studio Code|Code.exe', 'qBittorrent|qbittorrent.exe', 'Яндекс Музыка|YandexMusic.exe']
+      .map((l) => ({ name: l.split('|')[0], id: l.split('|')[1] }));
+  },
   clipboard: () => 'vless://00000000-0000-0000-0000-000000000000@example.net:443?type=ws&security=tls#sample',
   get_logs: () => logs.slice(),
   clear_logs: () => { logs.length = 0; },

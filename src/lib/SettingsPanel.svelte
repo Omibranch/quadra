@@ -97,7 +97,7 @@
     <Segmented small value={s.sub_update_hours} onchange={(v) => set('sub_update_hours', v)}
                options={[{ value: 0, label: 'Выкл' }, { value: 1, label: '1 ч' }, { value: 6, label: '6 ч' }, { value: 12, label: '12 ч' }, { value: 24, label: '24 ч' }]} />
   </Field>
-  <Field title="Сообщать провайдеру об устройстве" hint="Провайдеры с лимитом устройств не отдают серверы клиенту, который не назвал себя. Отправляется идентификатор, «Windows», версия системы и имя компьютера.">
+  <Field title="Сообщать провайдеру об устройстве" hint="Провайдеры с лимитом устройств не отдают серверы клиенту, который не назвал себя. Отправляется идентификатор, название и версия системы, {app.platform === 'android' ? 'модель устройства' : 'имя компьютера'}.">
     <Toggle checked={s.send_hwid} onchange={(v) => set('send_hwid', v)} />
   </Field>
   <Field title="Идентификатор устройства" hint="По нему провайдер считает это устройство">
@@ -184,6 +184,7 @@
   }
   .wide {
     width: 280px;
+    max-width: 100%;
   }
   input[type='number']::-webkit-inner-spin-button {
     display: none;

@@ -8,8 +8,9 @@
   import PingBar from './PingBar.svelte';
   import Loader from './Loader.svelte';
 
-  const ROW = 46;
-  const GROUP = 56;
+  // A phone gets taller rows for a finger, and a subscription's heading there also carries
+  // what the provider says: there is no right click to find it under.
+  const phone = $derived(app.platform === 'android');
 
   let scroller = $state();
   let scrollTop = $state(0);
@@ -24,13 +25,15 @@
   const items = $derived.by(() => {
     const q = app.query.trim().toLowerCase();
     const out = [];
+    const ROW = phone ? 50 : 46;
     if (!q && app.servers.length) out.push({ type: 'auto', key: 'auto', h: ROW });
     const groups = [...app.subs.map((sub) => ({ sub, id: sub.id })), { sub: null, id: 'manual' }];
     for (const g of groups) {
       const servers = app.servers.filter((s) => (s.sub ?? 'manual') === g.id && matches(s, q));
       if (!g.sub && !servers.length) continue;
       if (q && !servers.length) continue;
-      out.push({ type: 'group', key: 'g:' + g.id, h: GROUP, sub: g.sub, id: g.id, n: servers.length });
+      const h = phone ? 62 + (g.sub?.announce ? 34 : 0) : 56;
+      out.push({ type: 'group', key: 'g:' + g.id, h, sub: g.sub, id: g.id, n: servers.length });
       if (!collapsed.has(g.id) || q) for (const s of servers) out.push({ type: 'server', key: s.id, h: ROW, s });
     }
     let y = 0;
@@ -82,6 +85,9 @@
     if (left) parts.push(left);
     return parts.join(' · ');
   }
+
+  const used = (sub) => (sub.total ? Math.min(100, ((sub.upload + sub.download) / sub.total) * 100) : 0);
+  const oneLine = (text) => text.split(/\n+/).map((l) => l.trim()).filter(Boolean).join(' · ');
 </script>
 
 <div class="list" bind:this={scroller} bind:clientHeight={height} onscroll={() => (scrollTop = scroller.scrollTop)}>
@@ -98,7 +104,7 @@
     <div class="spacer" style="height:{items.total}px">
       {#each visible as it (it.key)}
         {#if it.type === 'auto'}
-          <button class="row" class:active={selected === 'auto'} style="transform:translateY({it.y}px)" onclick={() => select('auto')} ondblclick={connect}>
+          <button class="row" class:active={selected === 'auto'} style="transform:translateY({it.y}px);height:{it.h}px" onclick={() => select('auto')} ondblclick={connect}>
             <span class="auto"><Icon name="bolt" /></span>
             <span class="text">
               <span class="name">Авто, самый быстрый</span>
@@ -107,7 +113,8 @@
             {#if auto?.ping > 0}<PingBar ms={auto.ping} />{/if}
           </button>
         {:else if it.type === 'group'}
-          <div class="group" style="transform:translateY({it.y}px)" oncontextmenu={(e) => groupMenu(e, it.sub)} role="presentation">
+          <div class="group" style="transform:translateY({it.y}px);height:{it.h}px" oncontextmenu={(e) => groupMenu(e, it.sub)} role="presentation">
+            <div class="head">
             <button class="fold" class:open={!collapsed.has(it.id)} onclick={() => toggleGroup(it.id)}>
               <Icon name="chevron" size={14} />
               <span class="text">
@@ -116,6 +123,7 @@
                   <span class="sub err" title={it.sub.error}>{it.sub.error}</span>
                 {:else if it.sub && usage(it.sub)}
                   <span class="sub mono">{usage(it.sub)}</span>
+                  {#if phone && it.sub.total}<span class="bar"><i style="width:{used(it.sub)}%"></i></span>{/if}
                 {:else}
                   <span class="sub mono">{count(it.n, 'сервер', 'сервера', 'серверов')}</span>
                 {/if}
@@ -126,16 +134,26 @@
                 {#if app.busy['sub:' + it.sub.id]}<Loader cell={3} />{:else}<Icon name="refresh" />{/if}
               </button>
             {/if}
+            </div>
+            {#if phone && it.sub?.announce}
+              <button class="news" onclick={() => (app.popup = { kind: 'announce', sub: it.sub.id })}>
+                <Icon name="info" size={14} /><span>{oneLine(it.sub.announce)}</span>
+              </button>
+            {/if}
           </div>
         {:else}
           {@const s = it.s}
           <button class="row" class:active={selected === s.id} class:live={app.status.server === s.id && app.status.state === 'on'}
-                  style="transform:translateY({it.y}px)" onclick={() => select(s.id)}
+                  style="transform:translateY({it.y}px);height:{it.h}px" onclick={() => select(s.id)}
                   ondblclick={() => { set('selected', s.id); connect(); }} oncontextmenu={(e) => serverMenu(e, s)}>
             <Flag cc={s.cc} />
             <span class="text">
               <span class="name">{s.name}</span>
-              <span class="sub mono">{protoLabel(s)}{s.note ? ` · ${s.note}` : ''}</span>
+              {#if !phone}
+                <span class="sub mono">{protoLabel(s)}{s.note ? ` · ${s.note}` : ''}</span>
+              {:else if s.note}
+                <span class="sub">{s.note}</span>
+              {/if}
             </span>
             <PingBar ms={s.ping} pending={app.pinging} />
           </button>
@@ -165,7 +183,6 @@
     will-change: transform;
   }
   .row {
-    height: 46px;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -225,12 +242,65 @@
     border-radius: 2px;
   }
   .group {
-    height: 56px;
     display: flex;
-    align-items: center;
+    flex-direction: column;
     padding: 10px 10px 0 0;
     border-top: 1px solid var(--line);
     background: var(--surface);
+  }
+  .head {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+  }
+  /* how much of the traffic is used up */
+  .bar {
+    display: block;
+    width: 100%;
+    max-width: 190px;
+    height: 2px;
+    margin-top: 4px;
+    background: var(--line-2);
+  }
+  .bar i {
+    display: block;
+    height: 100%;
+    background: var(--accent-dim);
+  }
+  .news {
+    flex: none;
+    height: 28px;
+    margin: 0 0 6px 13px;
+    padding: 0 10px 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-align: left;
+    font-size: 12px;
+    color: var(--text-2);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+  }
+  .news :global(svg) {
+    flex: none;
+    color: var(--text-3);
+  }
+  .news span {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  :global([data-platform='android']) .name {
+    font-size: 14px;
+  }
+  :global([data-platform='android']) .title {
+    font-size: 14px;
+  }
+  :global([data-platform='android']) .group {
+    padding-top: 6px;
   }
   .fold {
     flex: 1;

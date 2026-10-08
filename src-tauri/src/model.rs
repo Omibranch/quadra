@@ -34,7 +34,10 @@ pub struct Settings {
     /// "all" | "lan" | "ru": which traffic skips the server. Applies to servers added as links.
     pub routing: String,
     pub rules: Vec<Rule>,
-    /// Programs (process names) and domains that never go through the server.
+    /// "exclude": the listed programs and domains go past the server, everything else through
+    /// it. "only": the other way round, nothing but the listed ones goes through the server.
+    pub bypass_mode: String,
+    /// Programs: process names on a desktop, package names on Android.
     pub bypass_apps: Vec<String>,
     pub bypass_domains: Vec<String>,
     pub dns: String,
@@ -63,6 +66,7 @@ impl Default for Settings {
             allow_lan: false,
             routing: "lan".into(),
             rules: vec![],
+            bypass_mode: "exclude".into(),
             bypass_apps: vec![],
             bypass_domains: vec![],
             dns: "1.1.1.1, 8.8.8.8".into(),

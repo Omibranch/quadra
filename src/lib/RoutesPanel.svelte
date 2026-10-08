@@ -1,5 +1,5 @@
 <script>
-  import { app, set, save, connect } from './store.svelte.js';
+  import { app, set, save, connect, loadApps } from './store.svelte.js';
   import Panel from './Panel.svelte';
   import Segmented from './Segmented.svelte';
   import Icon from './Icon.svelte';
@@ -13,11 +13,34 @@
   const outcomes = [{ value: 'proxy', label: 'Через сервер' }, { value: 'direct', label: 'Напрямую' }, { value: 'block', label: 'Блокировать' }];
   const live = $derived(app.status.state !== 'off');
 
-  const parse = (text) => text.split(/[\s,;]+/).map((v) => v.trim()).filter(Boolean);
+  const phone = $derived(app.platform === 'android');
+  const bypassModes = [{ value: 'exclude', label: 'Все, кроме этих' }, { value: 'only', label: 'Только эти' }];
+  const only = $derived(app.settings.bypass_mode === 'only');
+  let domain = $state('');
 
-  function setList(key, e) {
-    app.settings[key] = parse(e.currentTarget.value);
-    e.currentTarget.value = app.settings[key].join(', ');
+  // the list stores ids (an executable or a package); the names come from the system
+  $effect(() => {
+    if (app.settings.bypass_apps.length) loadApps();
+  });
+  const known = $derived(new Map((app.apps ?? []).map((a) => [a.id.toLowerCase(), a])));
+
+  /** "https://www.Example.com/page, bank.ru" -> ["example.com", "bank.ru"] */
+  const parse = (text) =>
+    text.split(/[\s,;]+/)
+      .map((v) => v.trim().toLowerCase().replace(/^[a-z]+:\/\//, '').replace(/[/?#].*$/, '').replace(/^(\*\.|www\.)/, ''))
+      .filter(Boolean);
+
+  function addDomains() {
+    const fresh = parse(domain).filter((d) => !app.settings.bypass_domains.includes(d));
+    if (fresh.length) {
+      app.settings.bypass_domains.push(...fresh);
+      save();
+    }
+    domain = '';
+  }
+
+  function drop(key, value) {
+    app.settings[key] = app.settings[key].filter((v) => v !== value);
     save();
   }
 
@@ -57,20 +80,61 @@
   </p>
 
   <h3 class="label">Исключения</h3>
-  <p class="note top">
-    Эти программы и сайты всегда идут мимо сервера, в любом режиме и с любым сервером. Программы различаются
-    только в режиме «Весь трафик»; в режиме «Прокси» работают домены.
+  <Segmented options={bypassModes} value={app.settings.bypass_mode} onchange={(v) => set('bypass_mode', v)} />
+  <p class="note">
+    {#if only}
+      Через сервер идут только выбранные приложения и сайты, всё остальное идёт напрямую. Пока ничего не выбрано, через сервер идёт всё.
+    {:else}
+      Выбранные приложения и сайты идут мимо сервера, всё остальное идёт через него.
+    {/if}
+    {#if phone}
+      {#if only}Если выбраны приложения, список сайтов не учитывается: решают приложения.{/if}
+    {:else}
+      Приложения различаются только в режиме «Весь трафик»; в режиме «Прокси» работают сайты.
+    {/if}
   </p>
-  <label class="list">
-    <span>Программы</span>
-    <input class="input mono" value={app.settings.bypass_apps.join(', ')} spellcheck="false" placeholder="chrome.exe, Steam.exe"
-           onchange={(e) => setList('bypass_apps', e)} />
-  </label>
-  <label class="list">
-    <span>Домены</span>
-    <input class="input mono" value={app.settings.bypass_domains.join(', ')} spellcheck="false" placeholder="example.com, bank.ru"
-           onchange={(e) => setList('bypass_domains', e)} />
-  </label>
+
+  <div class="pick">
+    <div class="pick-head">
+      <b>Приложения</b>
+      <button class="btn" onclick={() => (app.popup = { kind: 'apps' })}><Icon name="plus" />Выбрать</button>
+    </div>
+    {#if app.settings.bypass_apps.length}
+      <div class="chips">
+        {#each app.settings.bypass_apps as id (id)}
+          {@const a = known.get(id.toLowerCase())}
+          <span class="chip" title={id}>
+            {#if a?.icon}<img src={a.icon} alt="" />{/if}
+            <span>{a?.name ?? id}</span>
+            <button title="Убрать" onclick={() => drop('bypass_apps', id)}><Icon name="close" size={11} /></button>
+          </span>
+        {/each}
+      </div>
+    {:else}
+      <p class="none">Ничего не выбрано</p>
+    {/if}
+  </div>
+
+  <div class="pick">
+    <div class="pick-head">
+      <b>Сайты</b>
+    </div>
+    <form class="enter" onsubmit={(e) => { e.preventDefault(); addDomains(); }}>
+      <input class="input" bind:value={domain} spellcheck="false" autocapitalize="off" autocomplete="off" inputmode="url"
+             placeholder="example.com" onpaste={() => setTimeout(() => /[\s,;]/.test(domain.trim()) && addDomains())} />
+      <button class="btn" disabled={!domain.trim()}><Icon name="plus" />Добавить</button>
+    </form>
+    {#if app.settings.bypass_domains.length}
+      <div class="chips">
+        {#each app.settings.bypass_domains as d (d)}
+          <span class="chip">
+            <span>{d}</span>
+            <button title="Убрать" onclick={() => drop('bypass_domains', d)}><Icon name="close" size={11} /></button>
+          </span>
+        {/each}
+      </div>
+    {/if}
+  </div>
 
   <h3 class="label">Свои правила</h3>
   <p class="note top">Проверяются первыми, сверху вниз, и работают с любыми серверами.</p>
@@ -149,21 +213,81 @@
   .note.top {
     margin: -4px 0 12px;
   }
-  .list {
+  .pick {
+    max-width: 620px;
+    margin-top: 14px;
+    padding: 12px 14px 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+  }
+  .pick-head {
+    min-height: 30px;
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 12px;
-    margin-bottom: 6px;
   }
-  .list span {
-    width: 86px;
-    flex: none;
-    color: var(--text-2);
+  .pick-head b {
+    font-weight: 600;
   }
-  .list .input {
+  .none {
+    margin: 6px 0 0;
+    font-size: 12px;
+    color: var(--text-3);
+  }
+  .enter {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .enter .input {
     flex: 1;
     min-width: 0;
     height: 30px;
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 12px;
+  }
+  .chip {
+    max-width: 100%;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 3px 0 9px;
+    font-size: 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--line-2);
+    border-radius: var(--r);
+  }
+  .chip > span {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .chip img {
+    width: 16px;
+    height: 16px;
+    flex: none;
+  }
+  .chip button {
+    width: 22px;
+    height: 22px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-3);
+    border-radius: 2px;
+  }
+  .chip button:hover {
+    color: var(--danger);
+    background: var(--danger-soft);
   }
   .rule {
     display: flex;
@@ -171,6 +295,38 @@
     gap: 8px;
     margin-bottom: 6px;
     animation: rise var(--t) var(--ease);
+  }
+  /* a narrow screen: the value takes a line of its own, the switches sit under it */
+  @media (max-width: 720px) {
+    .rule {
+      flex-wrap: wrap;
+      padding: 10px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--r);
+    }
+    .rule .input {
+      order: -1;
+      flex: 1 1 100%;
+      height: 36px;
+    }
+    .rule :global(.seg) {
+      flex: 0 1 auto;
+    }
+    .rule .ibtn {
+      margin-left: auto;
+    }
+    .enter .input,
+    .enter .btn {
+      height: 36px;
+    }
+    .chip {
+      height: 32px;
+    }
+    .chip button {
+      width: 26px;
+      height: 26px;
+    }
   }
   .rule .input {
     flex: 1;

@@ -38,7 +38,8 @@
 - **A map of the connection.** It shows where you are and where the server is. The status
   turns to "connected" only after a real request has gone through the tunnel.
 - **Routing and exclusions.** Keep the home network or a whole country direct, add your own
-  domain and address rules, and list programs and sites that must never go through the server.
+  domain and address rules, and pick programs and sites that either never go through the
+  server or are the only ones that do. Programs are ticked in a list of what is installed.
 - **Yours to restyle.** Dark and light themes and any accent colour; the whole interface,
   the map included, follows it.
 

@@ -21,6 +21,8 @@ class QuadraVpnService : VpnService() {
         const val ACTION_START = "dev.quadra.vpn.START"
         const val ACTION_STOP = "dev.quadra.vpn.STOP"
         const val EXTRA_MTU = "mtu"
+        const val EXTRA_ONLY = "only"
+        const val EXTRA_APPS = "apps"
         private const val CHANNEL = "quadra-vpn"
         private const val NOTIFICATION = 1
 
@@ -48,7 +50,22 @@ class QuadraVpnService : VpnService() {
                 .addRoute("::", 0)
                 .addDnsServer("1.1.1.1")
                 .addDnsServer("8.8.8.8")
-                .addDisallowedApplication(packageName)
+            // Which apps the VPN takes. Quadra itself always stays outside: its own connection
+            // to the server must not loop back into the tunnel.
+            val apps = (intent?.getStringArrayExtra(EXTRA_APPS) ?: arrayOf()).filter { it.isNotBlank() && it != packageName }
+            if (intent?.getBooleanExtra(EXTRA_ONLY, false) == true && apps.isNotEmpty()) {
+                var taken = 0
+                for (app in apps) {
+                    try { builder.addAllowedApplication(app); taken++ } catch (_: Exception) { }
+                }
+                // none of them is installed any more: fall back to everything but ourselves
+                if (taken == 0) builder.addDisallowedApplication(packageName)
+            } else {
+                builder.addDisallowedApplication(packageName)
+                for (app in apps) {
+                    try { builder.addDisallowedApplication(app) } catch (_: Exception) { }
+                }
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) builder.setMetered(false)
             val tunnel = builder.establish() ?: throw IllegalStateException("система не выдала VPN: разрешение не получено")
             // from here on the descriptor belongs to the Rust side, which closes it when done

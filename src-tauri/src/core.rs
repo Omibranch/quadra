@@ -517,7 +517,9 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
         }
     }
     if settings.mode == "proxy" && cfg!(not(target_os = "android")) {
-        match sys::set_system_proxy(settings.http_port, settings.socks_port, &settings.bypass_domains) {
+        // domains the system itself sends past the proxy; in "only" mode the list means the opposite
+        let past: &[String] = if settings.bypass_mode == "only" { &[] } else { &settings.bypass_domains };
+        match sys::set_system_proxy(settings.http_port, settings.socks_port, past) {
             Ok(backup) => {
                 let _ = std::fs::write(ctx.dir.join(PROXY_BACKUP), serde_json::to_vec(&backup).unwrap_or_default());
             }

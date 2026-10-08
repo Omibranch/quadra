@@ -47,25 +47,49 @@ pub fn clean(s: &str) -> String {
 }
 
 /// Countries providers name without a flag.
+///
+/// A word of the name has to start with the stem: "не грузит" is not Georgia and "индивидуальный"
+/// is not India. Short ones that are words in their own right ("usa") have to be the whole word.
 pub fn guess_cc(name: &str) -> Option<String> {
-    const WORDS: &[(&str, &str)] = &[
+    const STEMS: &[(&str, &str)] = &[
         ("герман", "DE"), ("german", "DE"), ("нидерланд", "NL"), ("netherland", "NL"), ("голланд", "NL"),
-        ("финлянд", "FI"), ("finland", "FI"), ("швец", "SE"), ("sweden", "SE"), ("польш", "PL"), ("poland", "PL"),
-        ("франц", "FR"), ("france", "FR"), ("великобритан", "GB"), ("англи", "GB"), ("united kingdom", "GB"),
-        ("сша", "US"), ("usa", "US"), ("united states", "US"), ("америк", "US"), ("швейцар", "CH"), ("switzerland", "CH"),
-        ("турц", "TR"), ("turkey", "TR"), ("казахстан", "KZ"), ("kazakhstan", "KZ"), ("росси", "RU"), ("russia", "RU"),
-        ("япон", "JP"), ("japan", "JP"), ("сингапур", "SG"), ("singapore", "SG"), ("эстон", "EE"), ("estonia", "EE"),
-        ("латв", "LV"), ("latvia", "LV"), ("литв", "LT"), ("lithuania", "LT"), ("австри", "AT"), ("austria", "AT"),
-        ("испан", "ES"), ("spain", "ES"), ("итал", "IT"), ("italy", "IT"), ("канад", "CA"), ("canada", "CA"),
-        ("инди", "IN"), ("india", "IN"), ("гонконг", "HK"), ("hong kong", "HK"), ("оаэ", "AE"), ("эмират", "AE"),
-        ("чехи", "CZ"), ("czech", "CZ"), ("норвег", "NO"), ("norway", "NO"), ("дани", "DK"), ("denmark", "DK"),
-        ("украин", "UA"), ("ukraine", "UA"), ("молдов", "MD"), ("армени", "AM"), ("грузи", "GE"), ("израил", "IL"),
-        ("австрал", "AU"), ("australia", "AU"), ("бразил", "BR"), ("brazil", "BR"), ("коре", "KR"), ("korea", "KR"),
-        ("румын", "RO"), ("romania", "RO"), ("болгар", "BG"), ("bulgaria", "BG"), ("серби", "RS"), ("serbia", "RS"),
-        ("ирланд", "IE"), ("ireland", "IE"), ("бельги", "BE"), ("belgium", "BE"), ("португал", "PT"), ("венгри", "HU"),
+        ("финлянд", "FI"), ("finland", "FI"), ("швеци", "SE"), ("sweden", "SE"), ("польш", "PL"), ("poland", "PL"),
+        ("франци", "FR"), ("france", "FR"), ("великобритан", "GB"), ("британи", "GB"), ("britain", "GB"),
+        ("америк", "US"), ("швейцар", "CH"), ("switzerland", "CH"),
+        ("турци", "TR"), ("turkey", "TR"), ("türkiye", "TR"), ("казахстан", "KZ"), ("kazakhstan", "KZ"), ("росси", "RU"), ("russia", "RU"),
+        ("япони", "JP"), ("japan", "JP"), ("сингапур", "SG"), ("singapore", "SG"), ("эстони", "EE"), ("estonia", "EE"),
+        ("латви", "LV"), ("latvia", "LV"), ("литв", "LT"), ("lithuania", "LT"), ("австри", "AT"), ("austria", "AT"),
+        ("испани", "ES"), ("spain", "ES"), ("итали", "IT"), ("italy", "IT"), ("канад", "CA"), ("canada", "CA"),
+        ("гонконг", "HK"), ("hongkong", "HK"), ("эмират", "AE"), ("emirates", "AE"),
+        ("czech", "CZ"), ("норвеги", "NO"), ("norway", "NO"), ("denmark", "DK"),
+        ("украин", "UA"), ("ukraine", "UA"), ("молдов", "MD"), ("moldova", "MD"), ("армени", "AM"), ("armenia", "AM"),
+        ("израил", "IL"), ("israel", "IL"), ("австрали", "AU"), ("australia", "AU"), ("бразили", "BR"), ("brazil", "BR"),
+        ("румыни", "RO"), ("romania", "RO"), ("болгари", "BG"), ("bulgaria", "BG"), ("serbia", "RS"),
+        ("ирланд", "IE"), ("ireland", "IE"), ("бельги", "BE"), ("belgium", "BE"), ("португал", "PT"), ("portugal", "PT"),
+        ("венгри", "HU"), ("hungary", "HU"), ("georgia", "GE"), ("india", "IN"), ("korea", "KR"),
     ];
+    // every form the word takes, for the stems that also begin other words
+    const WORDS: &[(&str, &str)] = &[
+        ("сша", "US"), ("usa", "US"), ("оаэ", "AE"), ("uae", "AE"),
+        ("англия", "GB"), ("англии", "GB"), ("england", "GB"),
+        ("грузия", "GE"), ("грузии", "GE"), ("индия", "IN"), ("индии", "IN"), ("дания", "DK"), ("дании", "DK"),
+        ("корея", "KR"), ("кореи", "KR"), ("чехия", "CZ"), ("чехии", "CZ"), ("сербия", "RS"), ("сербии", "RS"),
+    ];
+    const PHRASES: &[(&str, &str)] = &[("united kingdom", "GB"), ("united states", "US"), ("hong kong", "HK")];
+
     let low = name.to_lowercase();
-    WORDS.iter().find(|(w, _)| low.contains(w)).map(|(_, cc)| cc.to_string())
+    if let Some((_, cc)) = PHRASES.iter().find(|(p, _)| low.contains(p)) {
+        return Some(cc.to_string());
+    }
+    for word in low.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()) {
+        if let Some((_, cc)) = WORDS.iter().find(|(w, _)| word == *w) {
+            return Some(cc.to_string());
+        }
+        if let Some((_, cc)) = STEMS.iter().find(|(st, _)| word.starts_with(st)) {
+            return Some(cc.to_string());
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -81,5 +105,13 @@ mod tests {
         assert_eq!(clean("⚠️Не грузит - выбери другую страну 👇🏼"), "Не грузит - выбери другую страну");
         assert_eq!(flag_cc("Обход №1.0"), None);
         assert_eq!(guess_cc("Швеция 2").as_deref(), Some("SE"));
+        assert_eq!(guess_cc("США (для ИИ)").as_deref(), Some("US"));
+        assert_eq!(guess_cc("Сервер в Грузии").as_deref(), Some("GE"));
+        assert_eq!(guess_cc("United Kingdom #3").as_deref(), Some("GB"));
+        // words that merely look like a country
+        assert_eq!(guess_cc("Не грузит - выбери другую страну"), None);
+        assert_eq!(guess_cc("Индивидуальный сервер"), None);
+        assert_eq!(guess_cc("Usage limit"), None);
+        assert_eq!(guess_cc("Корень"), None);
     }
 }

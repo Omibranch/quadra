@@ -133,6 +133,11 @@ pub fn clipboard_text() -> String {
     tries.iter().find_map(|(p, a)| out(p, a)).unwrap_or_default()
 }
 
+/// No list of programs here yet: on these systems they are typed in by name.
+pub fn list_apps() -> Vec<(String, String)> {
+    vec![]
+}
+
 pub fn machine_guid() -> String {
     if cfg!(target_os = "macos") {
         return out("ioreg", &["-rd1", "-c", "IOPlatformExpertDevice"])

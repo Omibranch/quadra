@@ -4,7 +4,10 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.net.VpnService
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.os.Build
+import android.util.Base64
 import android.view.View
 import android.webkit.WebView
 import androidx.activity.result.ActivityResult
@@ -17,13 +20,18 @@ import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
+import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import java.io.ByteArrayOutputStream
 import java.io.File
 
 @InvokeArg
 class StartArgs {
     var mtu: Int = 1500
+    /** true: only the listed apps go through the VPN; false: all but the listed ones. */
+    var only: Boolean = false
+    var apps: Array<String> = arrayOf()
 }
 
 @InvokeArg
@@ -123,12 +131,51 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
         val intent = Intent(activity, QuadraVpnService::class.java)
             .setAction(QuadraVpnService.ACTION_START)
             .putExtra(QuadraVpnService.EXTRA_MTU, args.mtu)
+            .putExtra(QuadraVpnService.EXTRA_ONLY, args.only)
+            .putExtra(QuadraVpnService.EXTRA_APPS, args.apps)
         try {
             ContextCompat.startForegroundService(activity, intent)
         } catch (e: Exception) {
             QuadraVpnService.onReady = null
             invoke.reject(e.message ?: e.toString())
         }
+    }
+
+    /** Apps with a launcher icon, for the exclusions list: package, label and a small icon. */
+    @Command
+    fun listApps(invoke: Invoke) {
+        Thread {
+            try {
+                val pm = activity.packageManager
+                val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+                val seen = HashSet<String>()
+                val apps = JSArray()
+                for (info in pm.queryIntentActivities(launcher, 0).sortedBy { it.loadLabel(pm).toString().lowercase() }) {
+                    val pkg = info.activityInfo.packageName
+                    if (pkg == activity.packageName || !seen.add(pkg)) continue
+                    val item = JSObject()
+                    item.put("id", pkg)
+                    item.put("name", info.loadLabel(pm).toString())
+                    try {
+                        val size = 72
+                        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+                        val drawable = info.loadIcon(pm)
+                        drawable.setBounds(0, 0, size, size)
+                        drawable.draw(Canvas(bitmap))
+                        val bytes = ByteArrayOutputStream()
+                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, bytes)
+                        item.put("icon", "data:image/png;base64," + Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP))
+                    } catch (_: Exception) {
+                    }
+                    apps.put(item)
+                }
+                val result = JSObject()
+                result.put("apps", apps)
+                invoke.resolve(result)
+            } catch (e: Exception) {
+                invoke.reject(e.message ?: e.toString())
+            }
+        }.start()
     }
 
     @Command
