@@ -134,6 +134,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # the release workflow makes the draft; wait for it rather than make a second one
+          for i in $(seq 1 30); do
+            gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 && break
+            sleep 10
+          done
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --draft --title "Quadra $GITHUB_REF_NAME" --notes ""
           gh release upload "$GITHUB_REF_NAME" Quadra_*_android-arm64.apk --clobber
 
