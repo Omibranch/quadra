@@ -40,7 +40,6 @@ sleep 2
 kill -0 $SERVER || { echo "server did not start"; cat "$OUT/server.log"; exit 1; }
 
 echo "== install"
-adb shell settings put global hide_error_dialogs 1   # a slow emulator's "isn't responding" boxes
 adb install -r "$APK" || exit 1
 # the consent dialog needs a finger; this is the same switch it flips
 adb shell appops set $PKG ACTIVATE_VPN allow
