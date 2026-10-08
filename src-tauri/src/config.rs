@@ -137,7 +137,7 @@ fn from_link(outbound: &Value, s: &Settings, tun: bool) -> Map<String, Value> {
         "inbounds": inbounds,
         "outbounds": [proxy, {"tag": "direct", "protocol": "freedom"}, {"tag": "block", "protocol": "blackhole"},
                       {"tag": "dns-out", "protocol": "dns"}],
-        "routing": {"domainStrategy": "IPIfNonMatch", "rules": rules},
+        "routing": {"domainStrategy": if s.routing == "ru" { "IPIfNonMatch" } else { "AsIs" }, "rules": rules},
     });
     cfg.as_object().unwrap().clone()
 }

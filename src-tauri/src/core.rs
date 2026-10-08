@@ -103,23 +103,37 @@ fn through(socks: u16, secs: u64) -> Option<reqwest::Client> {
 
 /// A real request through the tunnel. The connection counts as up only when this succeeds.
 async fn probe(socks: u16) -> Option<u32> {
-    let client = through(socks, 4)?;
-    let good = |r: Result<reqwest::Response, reqwest::Error>| r.map(|r| r.status().as_u16() < 400).unwrap_or(false);
-    // two small plain-HTTP requests at once, the first good answer wins; one more round if both fail
-    for _ in 0..2 {
-        let t = Instant::now();
-        let a = client.get("http://cp.cloudflare.com/generate_204").send();
-        let b = client.get("http://www.gstatic.com/generate_204").send();
-        tokio::pin!(a, b);
-        let won = tokio::select! {
-            r = &mut a => good(r) || good(b.await),
-            r = &mut b => good(r) || good(a.await),
-        };
-        if won {
-            return Some(t.elapsed().as_millis() as u32);
+    // A new connection to a server sometimes stalls for seconds (a lost first packet, a busy
+    // server) while the next one goes through at once. So the question is asked several times,
+    // a little apart, and the first good answer settles it: one unlucky connection must not
+    // make the whole app look slow.
+    const URLS: [&str; 2] = ["http://cp.cloudflare.com/generate_204", "http://www.gstatic.com/generate_204"];
+    const STARTS_MS: [u64; 4] = [0, 500, 1300, 2600];
+    let client = through(socks, 5)?;
+    let began = Instant::now();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<bool>(STARTS_MS.len() * URLS.len());
+    let mut tasks = vec![];
+    for (i, delay) in STARTS_MS.into_iter().enumerate() {
+        let (client, tx) = (client.clone(), tx.clone());
+        let url = URLS[i % URLS.len()];
+        tasks.push(tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(delay)).await;
+            let good = client.get(url).send().await.map(|r| r.status().as_u16() < 400).unwrap_or(false);
+            let _ = tx.send(good).await;
+        }));
+    }
+    drop(tx);
+    let mut answer = None;
+    while let Some(good) = rx.recv().await {
+        if good {
+            answer = Some(began.elapsed().as_millis() as u32);
+            break;
         }
     }
-    None
+    for t in tasks {
+        t.abort();
+    }
+    answer
 }
 
 fn is_ip(host: &str) -> bool {

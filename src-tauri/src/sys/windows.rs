@@ -176,16 +176,30 @@ unsafe fn wide_at(ptr: *const u16) -> String {
     String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len))
 }
 
+/// Whether an adapter is some VPN's tunnel. Windows has tunnel-ish adapters of its own (Teredo,
+/// 6to4, ISATAP: interface type 131) that are always there and carry no VPN; those do not count.
+fn is_vpn_tunnel(description: &str, if_type: u32) -> bool {
+    const IF_TYPE_PROP_VIRTUAL: u32 = 53; // what Wintun adapters report
+    const IF_TYPE_TUNNEL: u32 = 131;
+    let d = description.to_lowercase();
+    if if_type == IF_TYPE_TUNNEL {
+        return false;
+    }
+    ["tap-windows", "wireguard", "openvpn", "wintun"].iter().any(|k| d.contains(k))
+        || (if_type == IF_TYPE_PROP_VIRTUAL && d.contains("tun"))
+}
+
 /// Name of another VPN's tunnel adapter that is up right now, if there is one. Two tunnels
 /// that both claim the default route starve each other, so the all-traffic mode refuses to
 /// start next to one. Asked from the system directly: this runs before every connection and
 /// has to cost nothing.
 pub fn other_tunnel() -> Option<String> {
     // Fields of IP_ADAPTER_ADDRESSES on 64-bit Windows, by offset: Next 8, Description 64,
-    // FriendlyName 72, OperStatus 104 (1 = up).
+    // FriendlyName 72, IfType 100, OperStatus 104 (1 = up).
     const NEXT: usize = 8;
     const DESCRIPTION: usize = 64;
     const FRIENDLY_NAME: usize = 72;
+    const IF_TYPE: usize = 100;
     const OPER_STATUS: usize = 104;
     if std::mem::size_of::<usize>() != 8 {
         return None;
@@ -211,16 +225,34 @@ pub fn other_tunnel() -> Option<String> {
         }
         let mut adapter = buffer.as_ptr() as *const u8;
         while !adapter.is_null() {
-            let description = wide_at(*(adapter.add(DESCRIPTION) as *const *const u16)).to_lowercase();
+            let description = wide_at(*(adapter.add(DESCRIPTION) as *const *const u16));
             let name = wide_at(*(adapter.add(FRIENDLY_NAME) as *const *const u16));
+            let if_type = *(adapter.add(IF_TYPE) as *const u32);
             let up = *(adapter.add(OPER_STATUS) as *const i32) == 1;
-            let tunnel = ["tun", "tap-windows", "wireguard", "openvpn"].iter().any(|k| description.contains(k));
-            if up && tunnel && name != "quadra" {
+            if up && name != "quadra" && is_vpn_tunnel(&description, if_type) {
                 return Some(name);
             }
             adapter = *(adapter.add(NEXT) as *const *const u8);
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_vpn_tunnel;
+
+    #[test]
+    fn windows_own_tunnel_adapters_are_not_a_vpn() {
+        for (description, if_type) in [("Teredo Tunneling Pseudo-Interface", 131), ("Microsoft 6to4 Adapter", 131),
+            ("Microsoft ISATAP Adapter", 131), ("VirtualBox Host-Only Ethernet Adapter", 6), ("Realtek PCIe GbE Family Controller", 6),
+            ("Hyper-V Virtual Ethernet Adapter", 6), ("Software Loopback Interface 1", 24)] {
+            assert!(!is_vpn_tunnel(description, if_type), "{description}");
+        }
+        for (description, if_type) in [("sing-tun Tunnel", 53), ("WireGuard Tunnel", 53), ("Wintun Userspace Tunnel", 53),
+            ("TAP-Windows Adapter V9", 6), ("OpenVPN Data Channel Offload", 53), ("Xray Tunnel", 53)] {
+            assert!(is_vpn_tunnel(description, if_type), "{description}");
+        }
     }
 }
 
