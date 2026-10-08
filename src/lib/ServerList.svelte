@@ -89,7 +89,7 @@
     <div class="empty">
       <Loader cell={6} still />
       <p>Серверов пока нет</p>
-      <span>Вставь ссылку на подписку или сервер: кнопка «+» или просто Ctrl+V</span>
+      <span>Вставь ссылку на подписку или сервер: кнопка «+»{app.platform === 'android' ? '' : ' или просто Ctrl+V'}</span>
       <button class="btn primary" onclick={() => (app.popup = { kind: 'add' })}><Icon name="plus" />Добавить</button>
     </div>
   {:else if !items.rows.length}
