@@ -87,6 +87,10 @@
     border: 1px solid var(--line);
     border-radius: var(--r);
     transition: border-color var(--t);
+    /* a long country name gives way before the mode switch does */
+    min-width: 0;
+    flex-shrink: 1;
+    overflow: hidden;
   }
   .route.live {
     border-color: var(--accent-line);
@@ -96,10 +100,13 @@
     align-items: center;
     gap: 8px;
     white-space: nowrap;
+    min-width: 0;
   }
   .end b {
     font-weight: 500;
     font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .muted {
     color: var(--text-3);
@@ -107,6 +114,7 @@
   .dots {
     display: flex;
     gap: 3px;
+    flex: none;
   }
   .dots i {
     width: 3px;
