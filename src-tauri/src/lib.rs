@@ -414,7 +414,7 @@ fn show_main(app: &AppHandle) {
 }
 
 /// Development aid, debug builds only: a file `autotest.json` in the data folder
-/// (`{"link": "...", "connect": true}`) is imported at startup, the connection is made, and the
+/// (`{"link": "...", "connect": true, "hold": 30}`) is imported at startup, the connection is made, and the
 /// outcome is written next to it as `autotest-result.json`. This is how the Android build is
 /// exercised on an emulator, where nobody is there to tap.
 #[cfg(debug_assertions)]
@@ -444,6 +444,14 @@ async fn autotest(app: AppHandle, ctx: Arc<Ctx>) {
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         let status = serde_json::to_value(&*ctx.status.lock().unwrap()).unwrap_or_default();
         report(json!({"stage": "connect", "result": result.err(), "status": status}));
+        // "hold": seconds to stay connected before disconnecting again, to check the way back
+        if let Some(hold) = job["hold"].as_u64() {
+            tokio::time::sleep(std::time::Duration::from_secs(hold)).await;
+            core::disconnect(&app, &ctx, None).await;
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            let status = serde_json::to_value(&*ctx.status.lock().unwrap()).unwrap_or_default();
+            let _ = std::fs::write(ctx.dir.join("autotest-disconnect.json"), json!({"stage": "disconnect", "status": status}).to_string());
+        }
     } else {
         report(json!({"stage": "imported"}));
     }

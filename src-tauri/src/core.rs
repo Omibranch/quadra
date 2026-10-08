@@ -295,7 +295,7 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
     if std::fs::metadata(&log_path).map(|m| m.len() > 512 * 1024).unwrap_or(false) {
         let _ = std::fs::rename(&log_path, ctx.dir.join("core.old.log"));
     }
-    log(&app, &ctx, format!("--- подключение: {} | режим {} | {} ---", server.name, settings.mode, if sys::is_admin() { "администратор" } else { "обычные права" }));
+    log(&app, &ctx, format!("--- подключение: {} | режим {} | {} ---", server.name, if tun { "tun" } else { settings.mode.as_str() }, if sys::is_admin() { "администратор" } else { "обычные права" }));
     if let Some(out) = child.stdout.take() {
         let (app, ctx) = (app.clone(), ctx.clone());
         tokio::spawn(async move {
