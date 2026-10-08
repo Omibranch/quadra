@@ -271,11 +271,11 @@ mod tests {
 
     #[test]
     fn exclusions_come_first_and_go_direct() {
-        let s = Settings { bypass_apps: vec!["Claude.exe".into(), " ".into()], bypass_domains: vec!["*.claude.ai".into(), "geosite:anthropic".into()], ..Default::default() };
+        let s = Settings { bypass_apps: vec!["Steam.exe".into(), " ".into()], bypass_domains: vec!["*.example.org".into(), "geosite:google".into()], ..Default::default() };
         let link = Server { outbound: Some(json!({"protocol": "vless"})), ..Default::default() };
         let cfg = build(&link, &s, false, 4000).unwrap();
-        assert_eq!(cfg["routing"]["rules"][0], json!({"type": "field", "process": ["Claude.exe"], "outboundTag": "direct"}));
-        assert_eq!(cfg["routing"]["rules"][1]["domain"], json!(["domain:claude.ai", "geosite:anthropic"]));
+        assert_eq!(cfg["routing"]["rules"][0], json!({"type": "field", "process": ["Steam.exe"], "outboundTag": "direct"}));
+        assert_eq!(cfg["routing"]["rules"][1]["domain"], json!(["domain:example.org", "geosite:google"]));
         let full = Server { config: Some(json!({"outbounds": [{"tag": "px", "protocol": "vless"}], "routing": {"rules": [{"type": "field", "port": "25", "outboundTag": "px"}]}})), ..Default::default() };
         let cfg = build(&full, &s, false, 4000).unwrap();
         assert_eq!(cfg["routing"]["rules"][0]["outboundTag"], "quadra-direct");

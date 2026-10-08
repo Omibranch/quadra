@@ -74,7 +74,6 @@ try {
       console.log('adapters :', ps("(Get-NetAdapter | Where-Object Status -eq 'Up' | ForEach-Object { $_.Name }) -join ', '"));
       console.log('routes   :', ps("(Get-NetRoute -DestinationPrefix '0.0.0.0/0' | ForEach-Object { \"$($_.InterfaceAlias) metric $($_.RouteMetric)\" }) -join '; '"));
       console.log('plain    :', where([]));
-      console.log('claude   :', run('curl', ['-sS', '-m', '8', '-o', 'NUL', '-w', 'api.anthropic.com http %{http_code} in %{time_total}s', 'https://api.anthropic.com/']));
     }
     await new Promise((r) => setTimeout(r, 1500));
     console.log('status   :', JSON.stringify((await inv('get_state')).status.exit));

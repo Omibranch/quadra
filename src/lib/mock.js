@@ -11,7 +11,7 @@ const state = {
   settings: {
     theme: 'dark', accent: '#3ddc84', effects: 'full', mode: 'proxy', socks_port: 20808, http_port: 20809,
     allow_lan: false, routing: 'lan', rules: [{ kind: 'domain', value: 'example.org', action: 'direct' }],
-    bypass_apps: ['Claude.exe', 'claude.exe'], bypass_domains: ['anthropic.com', 'claude.ai', 'claude.com'],
+    bypass_apps: ['Steam.exe'], bypass_domains: ['example.org', 'bank.example'],
     dns: '1.1.1.1, 8.8.8.8', close_to_tray: true, autostart: false, autoconnect: false, send_hwid: true,
     user_agent: '', geo_lookup: true, home: { lat: 55.75, lon: 37.62, cc: 'RU', ip: '203.0.113.7', manual: false },
     sub_update_hours: 12, log_level: 'warning', selected: 'a2', collapsed: [],
