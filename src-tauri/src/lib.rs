@@ -41,6 +41,10 @@ pub struct Ctx {
     /// Held while a core is being stopped and the next one started, so two connects never overlap.
     pub launch: tokio::sync::Mutex<()>,
     pub gen: AtomicU64,
+    /// The core that is starting has reported that it is up.
+    pub core_ready: AtomicBool,
+    /// Server names already looked up, and when (see core::resolve_servers).
+    pub resolved: Mutex<HashMap<String, (std::net::IpAddr, std::time::Instant)>>,
     pub hidden: bool,
     pub elevated: bool,
     /// Under a tiling window manager: no splash window, no window buttons, no hiding to a tray.
@@ -543,6 +547,8 @@ pub fn run() {
                 core: tokio::sync::Mutex::new(None),
                 launch: tokio::sync::Mutex::new(()),
                 gen: AtomicU64::new(0),
+                core_ready: AtomicBool::new(false),
+                resolved: Mutex::new(HashMap::new()),
                 hidden, elevated, tiling,
                 splash: AtomicBool::new(with_splash),
                 main_ready: AtomicBool::new(false),

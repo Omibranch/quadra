@@ -6,6 +6,11 @@ use serde_json::{json, Map, Value};
 
 pub const TUN_TAG: &str = "quadra-tun";
 
+const PRIVATE_NETWORKS: &[&str] = &[
+    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16", "100.64.0.0/10",
+    "fc00::/7", "fe80::/10", "::1/128",
+];
+
 fn listen(s: &Settings) -> &'static str {
     if s.allow_lan { "0.0.0.0" } else { "127.0.0.1" }
 }
@@ -109,7 +114,8 @@ fn from_link(outbound: &Value, s: &Settings, tun: bool) -> Map<String, Value> {
     rules.extend(bypass_rules(s, "direct"));
     rules.extend(user_rules(s, "proxy", "direct", "block"));
     if s.routing != "all" {
-        rules.push(json!({"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"}));
+        // spelled out rather than "geoip:private": the core then has no 16 MB file to open at start
+        rules.push(json!({"type": "field", "ip": PRIVATE_NETWORKS, "outboundTag": "direct"}));
     }
     if s.routing == "ru" {
         rules.push(json!({"type": "field", "domain": ["geosite:category-ru", "domain:ru", "domain:su", "domain:xn--p1ai"], "outboundTag": "direct"}));

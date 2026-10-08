@@ -3,6 +3,7 @@
 use crate::model::{Home, Status};
 use crate::{config, emit_status, sys, Ctx};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::process::Stdio;
 use std::sync::atomic::Ordering;
@@ -33,6 +34,10 @@ fn log(app: &AppHandle, ctx: &Ctx, line: String) {
     }
     logs.push_back(line.clone());
     drop(logs);
+    // the core says so itself once every inbound is listening
+    if line.contains("core: Xray") && line.ends_with("started") {
+        ctx.core_ready.store(true, Ordering::SeqCst);
+    }
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(ctx.dir.join(LOG_FILE)) {
         use std::io::Write;
         let _ = writeln!(f, "{line}");
@@ -98,16 +103,134 @@ fn through(socks: u16, secs: u64) -> Option<reqwest::Client> {
 
 /// A real request through the tunnel. The connection counts as up only when this succeeds.
 async fn probe(socks: u16) -> Option<u32> {
-    let client = through(socks, 5)?;
-    for url in ["http://cp.cloudflare.com/generate_204", "https://www.gstatic.com/generate_204", "http://cp.cloudflare.com/generate_204"] {
+    let client = through(socks, 4)?;
+    let good = |r: Result<reqwest::Response, reqwest::Error>| r.map(|r| r.status().as_u16() < 400).unwrap_or(false);
+    // two small plain-HTTP requests at once, the first good answer wins; one more round if both fail
+    for _ in 0..2 {
         let t = Instant::now();
-        if let Ok(r) = client.get(url).send().await {
-            if r.status().as_u16() < 400 {
-                return Some(t.elapsed().as_millis() as u32);
-            }
+        let a = client.get("http://cp.cloudflare.com/generate_204").send();
+        let b = client.get("http://www.gstatic.com/generate_204").send();
+        tokio::pin!(a, b);
+        let won = tokio::select! {
+            r = &mut a => good(r) || good(b.await),
+            r = &mut b => good(r) || good(a.await),
+        };
+        if won {
+            return Some(t.elapsed().as_millis() as u32);
         }
     }
     None
+}
+
+fn is_ip(host: &str) -> bool {
+    host.trim_matches(|c| c == '[' || c == ']').parse::<std::net::IpAddr>().is_ok()
+}
+
+/// Every server address in a config that is a name, not a number.
+fn server_names(cfg: &Value) -> Vec<String> {
+    let mut names = vec![];
+    for o in cfg["outbounds"].as_array().into_iter().flatten() {
+        let st = &o["settings"];
+        let entries = st["vnext"].as_array().into_iter().flatten().chain(st["servers"].as_array().into_iter().flatten()).chain(std::iter::once(st));
+        for e in entries {
+            if let Some(a) = e["address"].as_str().filter(|a| !a.is_empty() && !is_ip(a)) {
+                if !names.iter().any(|n| n == a) {
+                    names.push(a.to_string());
+                }
+            }
+        }
+    }
+    names
+}
+
+/// Writes the resolved addresses into the config. The name the server expects in the TLS
+/// handshake and in the Host header stays the name: where the config relied on the address
+/// for that, the name is now spelled out.
+fn pin_addresses(cfg: &mut Value, resolved: &HashMap<String, std::net::IpAddr>) {
+    let Some(outbounds) = cfg["outbounds"].as_array_mut() else { return };
+    for o in outbounds {
+        let mut name: Option<String> = None;
+        let st = &mut o["settings"];
+        let mut pin = |e: &mut Value| {
+            let Some(host) = e["address"].as_str().map(String::from) else { return };
+            if let Some(ip) = resolved.get(&host) {
+                e["address"] = json!(ip.to_string());
+                name.get_or_insert(host);
+            }
+        };
+        for key in ["vnext", "servers"] {
+            for e in st[key].as_array_mut().into_iter().flatten() {
+                pin(e);
+            }
+        }
+        if st.is_object() {
+            pin(st);
+        }
+        let Some(name) = name else { continue };
+        let stream = &mut o["streamSettings"];
+        if !stream.is_object() {
+            continue;
+        }
+        let empty = |v: &Value| v.as_str().unwrap_or("").is_empty();
+        if stream["security"] == "tls" {
+            if !stream["tlsSettings"].is_object() {
+                stream["tlsSettings"] = json!({});
+            }
+            if empty(&stream["tlsSettings"]["serverName"]) {
+                stream["tlsSettings"]["serverName"] = json!(name);
+            }
+        }
+        for key in ["wsSettings", "httpupgradeSettings", "xhttpSettings"] {
+            let s = &mut stream[key];
+            if s.is_object() && empty(&s["host"]) && empty(&s["headers"]["Host"]) {
+                s["host"] = json!(name);
+            }
+        }
+        let grpc = &mut stream["grpcSettings"];
+        if grpc.is_object() && empty(&grpc["authority"]) {
+            grpc["authority"] = json!(name);
+        }
+    }
+}
+
+/// Looks the servers' names up now, before anything is started, and gives the core numbers.
+/// Otherwise the core asks the system while the tunnel is coming up, and in the all-traffic
+/// mode that question is sent into the very tunnel that is waiting for its answer.
+/// Answers are remembered for ten minutes, so a reconnect does not ask again.
+async fn resolve_servers(ctx: &Ctx, cfg: &mut Value) -> (usize, usize) {
+    let names = server_names(cfg);
+    if names.is_empty() {
+        return (0, 0);
+    }
+    let mut resolved: HashMap<String, std::net::IpAddr> = HashMap::new();
+    let mut missing = vec![];
+    {
+        let cache = ctx.resolved.lock().unwrap();
+        for n in &names {
+            match cache.get(n) {
+                Some((ip, at)) if at.elapsed() < Duration::from_secs(600) => {
+                    resolved.insert(n.clone(), *ip);
+                }
+                _ => missing.push(n.clone()),
+            }
+        }
+    }
+    let lookups = missing.into_iter().map(|name| {
+        tokio::spawn(async move {
+            let found = tokio::time::timeout(Duration::from_millis(2500), tokio::net::lookup_host((name.as_str(), 443))).await;
+            let addrs: Vec<std::net::SocketAddr> = found.ok().and_then(|r| r.ok()).map(|a| a.collect()).unwrap_or_default();
+            let ip = addrs.iter().find(|a| a.is_ipv4()).or(addrs.first()).map(|a| a.ip());
+            (name, ip)
+        })
+    });
+    for task in lookups.collect::<Vec<_>>() {
+        if let Ok((name, Some(ip))) = task.await {
+            ctx.resolved.lock().unwrap().insert(name.clone(), (ip, Instant::now()));
+            resolved.insert(name, ip);
+        }
+    }
+    pin_addresses(cfg, &resolved);
+    (resolved.len(), names.len())
 }
 
 async fn where_am_i(client: &reqwest::Client) -> Option<Home> {
@@ -195,6 +318,7 @@ impl JsonValue for reqwest::Response {
 }
 
 pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), String> {
+    let began = Instant::now();
     let gen = ctx.gen.fetch_add(1, Ordering::SeqCst) + 1;
     let launch = ctx.launch.lock().await;
     if ctx.gen.load(Ordering::SeqCst) != gen {
@@ -216,6 +340,7 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
         let (app, ctx) = (app.clone(), ctx.clone());
         async move {
             if ctx.gen.load(Ordering::SeqCst) == gen {
+                log(&app, &ctx, format!("не удалось за {} мс: {msg}", began.elapsed().as_millis()));
                 disconnect(&app, &ctx, Some(msg.clone())).await;
             }
             Err::<(), String>(msg)
@@ -244,10 +369,13 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
         }
     }
     let metrics = free_port().await;
-    let cfg = match config::build(&server, &settings, core_tun, metrics) {
+    let mut cfg = match config::build(&server, &settings, core_tun, metrics) {
         Ok(c) => c,
         Err(e) => return fail(e).await,
     };
+    let lookup = Instant::now();
+    let (found, asked) = resolve_servers(&ctx, &mut cfg).await;
+    let lookup_ms = lookup.elapsed().as_millis();
     let run_dir = ctx.dir.join("run");
     let _ = std::fs::create_dir_all(&run_dir);
     let cfg_path = run_dir.join("config.json");
@@ -256,6 +384,8 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
     }
 
     let xray = ctx.xray.join(sys::XRAY_BIN);
+    ctx.core_ready.store(false, Ordering::SeqCst);
+    let started = Instant::now();
     let wrapper = if core_tun && !sys::is_admin() { sys::tun_wrapper(&xray, &ctx.assets, &cfg_path, &run_dir) } else { None };
     let wrapped = wrapper.is_some();
     if core_tun && cfg!(unix) && !wrapped && !sys::is_admin() {
@@ -320,7 +450,6 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
     // a password prompt may stand between us and the core
     let patience = Duration::from_secs(if wrapped { 120 } else { 10 });
 
-    let started = Instant::now();
     loop {
         if ctx.gen.load(Ordering::SeqCst) != gen {
             return Ok(());
@@ -335,15 +464,22 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
                 .cloned().unwrap_or_else(|| "подробности в журнале".into());
             return fail(format!("ядро не запустилось: {}", reason.chars().take(220).collect::<String>())).await;
         }
-        if TcpStream::connect((Ipv4Addr::LOCALHOST, settings.socks_port)).await.is_ok() {
+        // Ready when the core reports it. Probing the port instead costs half a second on
+        // Windows, where a refused local connection takes that long to come back; it is kept
+        // only as a fallback for a core that does not say "started".
+        if ctx.core_ready.load(Ordering::SeqCst) {
+            break;
+        }
+        if started.elapsed() > Duration::from_millis(1500) && TcpStream::connect((Ipv4Addr::LOCALHOST, settings.socks_port)).await.is_ok() {
             break;
         }
         if started.elapsed() > patience {
             return fail("ядро не запустилось вовремя".into()).await;
         }
-        tokio::time::sleep(Duration::from_millis(60)).await;
+        tokio::time::sleep(Duration::from_millis(12)).await;
     }
 
+    let core_ms = started.elapsed().as_millis();
     let ms = probe(settings.socks_port).await;
     if ctx.gen.load(Ordering::SeqCst) != gen {
         return Ok(());
@@ -376,6 +512,9 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
             }
         }
     }
+    log(&app, &ctx, format!(
+        "подключено за {} мс: адреса {found} из {asked} за {lookup_ms} мс, ядро {core_ms} мс, проверка связи {ms} мс",
+        began.elapsed().as_millis()));
     set_status(&app, &ctx, |s| {
         s.state = "on".into();
         s.since = crate::now();
@@ -433,5 +572,42 @@ pub async fn ping(app: AppHandle, ctx: Arc<Ctx>, ids: Vec<String>) {
     }
     for t in tasks {
         let _ = t.await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn addresses_become_numbers_and_names_stay_where_the_server_needs_them() {
+        let mut cfg = json!({"outbounds": [
+            {"protocol": "vless", "settings": {"vnext": [{"address": "de.example.net", "port": 443}]},
+             "streamSettings": {"network": "tcp", "security": "reality", "realitySettings": {"serverName": "www.site.com"}}},
+            {"protocol": "vless", "settings": {"vnext": [{"address": "cdn.example.net", "port": 443}]},
+             "streamSettings": {"network": "ws", "security": "tls", "wsSettings": {"path": "/x"}}},
+            {"protocol": "trojan", "settings": {"servers": [{"address": "203.0.113.9", "port": 443}]}},
+            {"protocol": "freedom"}]});
+        assert_eq!(server_names(&cfg), vec!["de.example.net", "cdn.example.net"]);
+        let resolved: HashMap<String, std::net::IpAddr> = [("de.example.net", "198.51.100.1"), ("cdn.example.net", "198.51.100.2")]
+            .into_iter().map(|(k, v)| (k.to_string(), v.parse().unwrap())).collect();
+        pin_addresses(&mut cfg, &resolved);
+        let o = &cfg["outbounds"];
+        assert_eq!(o[0]["settings"]["vnext"][0]["address"], "198.51.100.1");
+        assert_eq!(o[0]["streamSettings"]["realitySettings"]["serverName"], "www.site.com");
+        assert_eq!(o[1]["settings"]["vnext"][0]["address"], "198.51.100.2");
+        assert_eq!(o[1]["streamSettings"]["tlsSettings"]["serverName"], "cdn.example.net");
+        assert_eq!(o[1]["streamSettings"]["wsSettings"]["host"], "cdn.example.net");
+        assert_eq!(o[2]["settings"]["servers"][0]["address"], "203.0.113.9");
+        assert!(server_names(&cfg).is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn asking_the_system_for_tunnels_is_instant_and_does_not_crash() {
+        let t = Instant::now();
+        let found = sys::other_tunnel();
+        println!("other tunnel: {found:?} in {:?}", t.elapsed());
+        assert!(t.elapsed() < Duration::from_millis(200));
     }
 }

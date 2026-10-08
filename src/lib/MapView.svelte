@@ -223,7 +223,8 @@
 
   function step(now) {
     if (phase === 'draw') {
-      const drawMs = Math.max(260, Math.min(520, path.length * 6));
+      // already confirmed while the path is still being drawn: do not make the user wait for the show
+      const drawMs = pendingConfirm ? 170 : Math.max(260, Math.min(520, path.length * 6));
       if (now - t0 >= drawMs) {
         phase = 'travel';
         t0 = now;
@@ -236,7 +237,7 @@
       }
       let p;
       if (confirmedAt) {
-        const dur = 240 + (1 - confirmedFrom) * 520;
+        const dur = 170 + (1 - confirmedFrom) * 330;
         p = confirmedFrom + (1 - confirmedFrom) * ease(Math.min(1, (now - confirmedAt) / dur));
       } else {
         // creep towards the server but never arrive before the tunnel is confirmed
@@ -338,7 +339,7 @@
 
     // the path: revealed cell by cell, then switched off behind the block
     if (path.length && (phase === 'draw' || phase === 'travel' || phase === 'fail')) {
-      const drawMs = Math.max(260, Math.min(520, path.length * 6));
+      const drawMs = pendingConfirm ? 170 : Math.max(260, Math.min(520, path.length * 6));
       const revealed = phase === 'draw' ? Math.floor(Math.min(1, (now - t0) / drawMs) * path.length) : path.length;
       const from = phase === 'draw' ? 0 : Math.round(head) + 2;
       const tone = phase === 'fail' ? colors.danger : colors.accent;

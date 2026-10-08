@@ -160,20 +160,68 @@ pub fn relaunch_elevated(args: &str) -> bool {
     std::env::current_exe().ok().and_then(|p| p.to_str().map(|p| shell("runas", p, args))).unwrap_or(false)
 }
 
+#[link(name = "iphlpapi")]
+extern "system" {
+    fn GetAdaptersAddresses(family: u32, flags: u32, reserved: *const c_void, addresses: *mut u64, size: *mut u32) -> u32;
+}
+
+unsafe fn wide_at(ptr: *const u16) -> String {
+    if ptr.is_null() {
+        return String::new();
+    }
+    let mut len = 0;
+    while *ptr.add(len) != 0 && len < 512 {
+        len += 1;
+    }
+    String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len))
+}
+
 /// Name of another VPN's tunnel adapter that is up right now, if there is one. Two tunnels
 /// that both claim the default route starve each other, so the all-traffic mode refuses to
-/// start next to one.
+/// start next to one. Asked from the system directly: this runs before every connection and
+/// has to cost nothing.
 pub fn other_tunnel() -> Option<String> {
-    use std::os::windows::process::CommandExt;
-    let script = "(Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.Name -ne 'quadra' -and \
-        $_.InterfaceDescription -match 'tun|TAP-Windows|WireGuard|OpenVPN' } | Select-Object -First 1).Name";
-    let out = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
-        .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
-        .output()
-        .ok()?;
-    let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    (!name.is_empty()).then_some(name)
+    // Fields of IP_ADAPTER_ADDRESSES on 64-bit Windows, by offset: Next 8, Description 64,
+    // FriendlyName 72, OperStatus 104 (1 = up).
+    const NEXT: usize = 8;
+    const DESCRIPTION: usize = 64;
+    const FRIENDLY_NAME: usize = 72;
+    const OPER_STATUS: usize = 104;
+    if std::mem::size_of::<usize>() != 8 {
+        return None;
+    }
+    unsafe {
+        let mut size: u32 = 32 * 1024;
+        let mut buffer: Vec<u64> = Vec::new();
+        let mut ok = false;
+        for _ in 0..3 {
+            buffer.resize(size as usize / 8 + 1, 0);
+            // skip unicast, anycast, multicast and DNS lists: only the adapters themselves
+            match GetAdaptersAddresses(0, 0x1 | 0x2 | 0x4 | 0x8, std::ptr::null(), buffer.as_mut_ptr(), &mut size) {
+                0 => {
+                    ok = true;
+                    break;
+                }
+                111 => continue, // ERROR_BUFFER_OVERFLOW: size now holds what is needed
+                _ => return None,
+            }
+        }
+        if !ok {
+            return None;
+        }
+        let mut adapter = buffer.as_ptr() as *const u8;
+        while !adapter.is_null() {
+            let description = wide_at(*(adapter.add(DESCRIPTION) as *const *const u16)).to_lowercase();
+            let name = wide_at(*(adapter.add(FRIENDLY_NAME) as *const *const u16));
+            let up = *(adapter.add(OPER_STATUS) as *const i32) == 1;
+            let tunnel = ["tun", "tap-windows", "wireguard", "openvpn"].iter().any(|k| description.contains(k));
+            if up && tunnel && name != "quadra" {
+                return Some(name);
+            }
+            adapter = *(adapter.add(NEXT) as *const *const u8);
+        }
+        None
+    }
 }
 
 pub fn machine_guid() -> String {
