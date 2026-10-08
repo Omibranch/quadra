@@ -297,3 +297,40 @@ textarea.input {
     padding-right: 18px !important;
   }
 }
+
+/* Android: one column, the map on top of the list; panels take the whole screen. */
+:root[data-platform='android'] #app {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+:root[data-platform='android'] main {
+  flex-direction: column;
+}
+:root[data-platform='android'] main > .stage {
+  display: block;
+  order: -1;
+  flex: none;
+  height: 32vh;
+  border-bottom: 1px solid var(--line);
+}
+:root[data-platform='android'] main > .stage .hud {
+  display: none;
+}
+:root[data-platform='android'] main > aside {
+  flex: 1;
+  width: 100% !important;
+  border-right: 0 !important;
+}
+:root[data-platform='android'] main.panel > aside {
+  display: none;
+}
+:root[data-platform='android'] main.panel > .stage {
+  position: fixed;
+  inset: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) 0;
+  height: auto;
+  z-index: 20;
+}
+:root[data-platform='android'] .ibtn {
+  width: 40px;
+  height: 40px;
+}

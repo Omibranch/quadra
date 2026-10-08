@@ -61,10 +61,12 @@
   </Field>
 
   <h3 class="label">Подключение</h3>
+  {#if app.platform !== 'android'}
   <Field title="Режим" hint="Прокси: программы, которые учитывают системный прокси. Весь трафик: виртуальный адаптер, система спросит права администратора. Порты: систему не трогаем.">
     <Segmented value={s.mode} onchange={(v) => setLink('mode', v)}
                options={[{ value: 'proxy', label: 'Прокси' }, { value: 'tun', label: 'Весь трафик' }, { value: 'ports', label: 'Порты' }]} />
   </Field>
+  {/if}
   <Field title="Локальные порты" hint="SOCKS5 и HTTP на 127.0.0.1">
     <label class="port"><span class="mono">SOCKS</span><input class="input mono" type="number" value={s.socks_port} onchange={(e) => port('socks_port', e)} /></label>
     <label class="port"><span class="mono">HTTP</span><input class="input mono" type="number" value={s.http_port} onchange={(e) => port('http_port', e)} /></label>
@@ -77,6 +79,7 @@
   </Field>
   {#if live}<p class="note">Изменения в этом разделе применятся при следующем подключении.</p>{/if}
 
+  {#if app.platform !== 'android'}
   <h3 class="label">Запуск</h3>
   <Field title="Запускать при входе в систему" hint="Стартует свёрнутым в трей">
     <Toggle checked={s.autostart} onchange={(v) => set('autostart', v)} />
@@ -87,6 +90,7 @@
   <Field title="Крестик сворачивает в трей" hint="Выйти совсем можно из меню значка в трее">
     <Toggle checked={s.close_to_tray} onchange={(v) => set('close_to_tray', v)} />
   </Field>
+  {/if}
 
   <h3 class="label">Подписки</h3>
   <Field title="Обновлять автоматически">

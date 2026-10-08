@@ -67,6 +67,8 @@ function applyData(d, first = false) {
     app.platform = d.platform ?? 'windows';
     app.tiling = !!d.tiling;
     app.relaunchForTun = !!d.relaunchForTun;
+    // a phone has one mode: the system VPN
+    if (app.platform === 'android') app.settings.mode = 'tun';
     app.version = d.version;
     app.userAgent = d.userAgent;
   } else {

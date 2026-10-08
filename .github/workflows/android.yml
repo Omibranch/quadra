@@ -1,0 +1,91 @@
+name: android
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: android
+
+      - name: Point the build at the NDK
+        run: |
+          ndk=$(ls -d "$ANDROID_HOME"/ndk/* | sort -V | tail -1)
+          echo "NDK_HOME=$ndk" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
+          echo "using $ndk"
+
+      - run: npm ci
+
+      - name: Xray-core for Android
+        run: node tools/fetch-xray.mjs --android
+
+      - name: Generate the Android project
+        run: |
+          npx tauri android init --ci
+          node tools/android-prepare.mjs
+
+      - name: Build the APK
+        run: npx tauri android build --debug --apk --target aarch64 x86_64
+
+      - name: Collect the APK
+        run: |
+          apk=$(find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' | head -1)
+          echo "built $apk"
+          cp "$apk" quadra-android-debug.apk
+          ls -la quadra-android-debug.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quadra-android-debug
+          path: quadra-android-debug.apk
+
+      - name: Let the emulator use hardware virtualisation
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Connect on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: bash tools/android-e2e.sh quadra-android-debug.apk
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-e2e
+          if-no-files-found: ignore
+          path: android-e2e/

@@ -18,6 +18,8 @@ pub struct Running {
     /// Started through the privileged wrapper (Unix, all-traffic mode): we cannot kill it,
     /// only ask it to stop.
     wrapped: bool,
+    /// Whatever else has to be undone when the connection ends (Android: the system VPN).
+    stopper: Option<Box<dyn FnOnce() + Send + Sync>>,
 }
 
 const PROXY_BACKUP: &str = "proxy_backup.json";
@@ -56,6 +58,9 @@ pub fn restore_proxy(ctx: &Ctx) {
 
 async fn stop(ctx: &Ctx) {
     if let Some(mut running) = ctx.core.lock().await.take() {
+        if let Some(undo) = running.stopper.take() {
+            undo();
+        }
         if running.wrapped {
             sys::release_tun(&ctx.dir.join("run"));
             let _ = tokio::time::timeout(Duration::from_secs(3), running.child.wait()).await;
@@ -201,7 +206,10 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
         let server = d.servers.iter().find(|s| s.id == id).cloned().ok_or("сервер не найден")?;
         (server, d.settings.clone())
     };
-    let tun = settings.mode == "tun";
+    // a phone has one mode: everything through the system VPN
+    let tun = settings.mode == "tun" || cfg!(target_os = "android");
+    // ...and there the tunnel device is ours, not the core's (see android.rs)
+    let core_tun = tun && !cfg!(target_os = "android");
     set_status(&app, &ctx, |s| *s = Status { state: "connecting".into(), server: Some(id.clone()), tun, ..Default::default() });
 
     let fail = |msg: String| {
@@ -217,7 +225,7 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
     if tun && sys::needs_relaunch_for_tun() {
         return fail("режим «весь трафик» требует прав администратора".into()).await;
     }
-    if tun {
+    if core_tun {
         if let Ok(Some(other)) = tokio::task::spawn_blocking(sys::other_tunnel).await {
             return fail(format!("уже работает другой VPN (адаптер {other}): два туннеля мешают друг другу. Выключи его или выбери режим «Прокси»")).await;
         }
@@ -236,7 +244,7 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
         }
     }
     let metrics = free_port().await;
-    let cfg = match config::build(&server, &settings, tun, metrics) {
+    let cfg = match config::build(&server, &settings, core_tun, metrics) {
         Ok(c) => c,
         Err(e) => return fail(e).await,
     };
@@ -248,14 +256,14 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
     }
 
     let xray = ctx.xray.join(sys::XRAY_BIN);
-    let wrapper = if tun && !sys::is_admin() { sys::tun_wrapper(&xray, &ctx.xray, &cfg_path, &run_dir) } else { None };
+    let wrapper = if core_tun && !sys::is_admin() { sys::tun_wrapper(&xray, &ctx.assets, &cfg_path, &run_dir) } else { None };
     let wrapped = wrapper.is_some();
-    if tun && cfg!(unix) && !wrapped && !sys::is_admin() {
+    if core_tun && cfg!(unix) && !wrapped && !sys::is_admin() {
         return fail("для режима «весь трафик» нужен pkexec (пакет polkit): установи его или выбери другой режим".into()).await;
     }
     let mut cmd = wrapper.unwrap_or_else(|| {
         let mut c = tokio::process::Command::new(&xray);
-        c.arg("run").arg("-c").arg(&cfg_path).current_dir(&ctx.xray).env("XRAY_LOCATION_ASSET", &ctx.xray);
+        c.arg("run").arg("-c").arg(&cfg_path).current_dir(&ctx.assets).env("XRAY_LOCATION_ASSET", &ctx.assets);
         c
     });
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
@@ -307,7 +315,7 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
         });
     }
 
-    *ctx.core.lock().await = Some(Running { child, metrics, wrapped });
+    *ctx.core.lock().await = Some(Running { child, metrics, wrapped, stopper: None });
     drop(launch);
     // a password prompt may stand between us and the core
     let patience = Duration::from_secs(if wrapped { 120 } else { 10 });
@@ -344,7 +352,21 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
         return fail("сервер не отвечает: соединение установить не удалось".into()).await;
     };
 
-    if settings.mode == "proxy" {
+    #[cfg(target_os = "android")]
+    {
+        // the core answers; now put the system VPN in front of it
+        match crate::android::start_tunnel(&app, &ctx, settings.socks_port, gen).await {
+            Ok(undo) => match ctx.core.lock().await.as_mut() {
+                Some(running) => running.stopper = Some(undo),
+                None => {
+                    undo();
+                    return Ok(());
+                }
+            },
+            Err(e) => return fail(e).await,
+        }
+    }
+    if settings.mode == "proxy" && cfg!(not(target_os = "android")) {
         match sys::set_system_proxy(settings.http_port, settings.socks_port, &settings.bypass_domains) {
             Ok(backup) => {
                 let _ = std::fs::write(ctx.dir.join(PROXY_BACKUP), serde_json::to_vec(&backup).unwrap_or_default());

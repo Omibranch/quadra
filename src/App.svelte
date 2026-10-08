@@ -85,7 +85,7 @@
 <svelte:window onkeydown={onKey} onpaste={onPaste} ondragenter={onDragEnter} ondragleave={onDragLeave}
                ondragover={(e) => e.preventDefault()} ondrop={onDrop} oncontextmenu={(e) => !typing(e) && e.preventDefault()} />
 
-{#if !app.tiling}<Titlebar />{/if}
+{#if !app.tiling && app.platform !== 'android'}<Titlebar />{/if}
 
 {#if app.ready}
   <main class:panel={!!app.panel}>

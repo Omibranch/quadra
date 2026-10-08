@@ -1,0 +1,17 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Quadra",
+        "backgroundColor": "#090c0b"
+      }
+    ]
+  },
+  "bundle": {
+    "resources": [],
+    "android": {
+      "minSdkVersion": 26
+    }
+  }
+}

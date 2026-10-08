@@ -20,7 +20,13 @@ pub fn short_hash(s: &str) -> String {
 
 /// Stable per-machine id in UUID form, the shape panels accept (10-64 chars of [a-zA-Z0-9=-]).
 pub fn make_hwid() -> String {
-    let h = hex(&Sha256::digest(format!("quadra_hwid_{}", sys::machine_guid()).as_bytes())).to_uppercase();
+    let mut seed = sys::machine_guid();
+    if seed.is_empty() {
+        // no machine id to derive from: a random one, kept in the settings from then on
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        seed = format!("{now}-{}-{:p}", std::process::id(), &now);
+    }
+    let h = hex(&Sha256::digest(format!("quadra_hwid_{seed}").as_bytes())).to_uppercase();
     format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32])
 }
 

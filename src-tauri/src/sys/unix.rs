@@ -3,8 +3,22 @@
 use std::path::Path;
 use std::process::Command;
 
-pub const PLATFORM: &str = if cfg!(target_os = "macos") { "macos" } else { "linux" };
-pub const XRAY_BIN: &str = "xray";
+pub const PLATFORM: &str = if cfg!(target_os = "macos") {
+    "macos"
+} else if cfg!(target_os = "android") {
+    "android"
+} else {
+    "linux"
+};
+/// On Android the core is packaged as a native library, the only place a program may be run from.
+pub const XRAY_BIN: &str = if cfg!(target_os = "android") { "libxray.so" } else { "xray" };
+
+/// Model and system version, told to us by the Android side at startup.
+static DEVICE: std::sync::OnceLock<(String, String)> = std::sync::OnceLock::new();
+
+pub fn set_device(model: &str, release: &str) {
+    let _ = DEVICE.set((model.to_string(), release.to_string()));
+}
 /// macOS only accepts utunN names and picks one itself.
 pub const TUN_NAME: Option<&str> = if cfg!(target_os = "macos") { None } else { Some("quadra") };
 
@@ -92,7 +106,7 @@ pub fn release_tun(run: &Path) {
 /// Tiling window managers place windows themselves: no title bar buttons, no splash window,
 /// and usually no tray to hide into.
 pub fn tiling_wm() -> bool {
-    if cfg!(target_os = "macos") {
+    if cfg!(any(target_os = "macos", target_os = "android")) {
         return false;
     }
     let env = |k: &str| std::env::var(k).unwrap_or_default().to_lowercase();
@@ -130,10 +144,19 @@ pub fn machine_guid() -> String {
 }
 
 pub fn os_name() -> &'static str {
-    if cfg!(target_os = "macos") { "macOS" } else { "Linux" }
+    if cfg!(target_os = "macos") {
+        "macOS"
+    } else if cfg!(target_os = "android") {
+        "Android"
+    } else {
+        "Linux"
+    }
 }
 
 pub fn os_version() -> String {
+    if let Some((_, release)) = DEVICE.get() {
+        return release.clone();
+    }
     if cfg!(target_os = "macos") {
         return out("sw_vers", &["-productVersion"]).unwrap_or_default();
     }
@@ -147,14 +170,17 @@ pub fn os_version() -> String {
 }
 
 pub fn device_name() -> String {
+    if let Some((model, _)) = DEVICE.get() {
+        return model.clone();
+    }
     std::fs::read_to_string("/etc/hostname").ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
         .or_else(|| out("hostname", &[])).unwrap_or_else(|| "PC".into())
 }
 
 /// Another VPN that already owns the default route (see the Windows side for why it matters).
 pub fn other_tunnel() -> Option<String> {
-    if cfg!(target_os = "macos") {
-        return None; // the system keeps utun devices of its own; they say nothing
+    if cfg!(any(target_os = "macos", target_os = "android")) {
+        return None; // macOS keeps utun devices of its own; Android allows only one VPN anyway
     }
     let routes = out("ip", &["-o", "route", "show", "default"])?;
     routes.lines().filter_map(|l| l.split_whitespace().skip_while(|w| *w != "dev").nth(1))

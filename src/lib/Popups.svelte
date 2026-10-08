@@ -73,7 +73,7 @@
           <textarea class="input" rows="6" bind:value={text} data-focus spellcheck="false" placeholder="https://… или vless://…"
                     onkeydown={(e) => e.key === 'Enter' && (e.ctrlKey || e.metaKey) && submit()}></textarea>
           <div class="row">
-            <button class="btn" onclick={fromClipboard}><Icon name="clipboard" />Из буфера</button>
+            {#if app.platform !== 'android'}<button class="btn" onclick={fromClipboard}><Icon name="clipboard" />Из буфера</button>{/if}
             <button class="btn" onclick={() => fileInput.click()}><Icon name="file" />Из файла</button>
             <input type="file" bind:this={fileInput} onchange={fromFile} hidden />
             <span class="grow"></span>

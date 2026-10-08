@@ -2,6 +2,7 @@
 // SHA-256 against the published digest and unpacks what the app needs into
 // src-tauri/resources/xray.
 //   node tools/fetch-xray.mjs [--target <rust target triple>]
+//   node tools/fetch-xray.mjs --android     the Android builds, into the VPN plugin
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -33,22 +34,48 @@ const get = async (u) => {
   return Buffer.from(await r.arrayBuffer());
 };
 
-console.log(`Xray ${version} for ${os}-${arch}: ${asset}`);
-const zip = await get(url);
-const digest = (await get(`${url}.dgst`)).toString('utf8');
-const expected = /SHA2-256=\s*([0-9a-f]{64})/i.exec(digest)?.[1]?.toLowerCase();
-const actual = createHash('sha256').update(zip).digest('hex');
-if (!expected || expected !== actual) throw new Error(`checksum mismatch: expected ${expected}, got ${actual}`);
-console.log('sha256 ok', actual);
-
-const work = mkdtempSync(join(tmpdir(), 'xray-'));
-const archive = join(work, asset);
-writeFileSync(archive, zip);
-if (process.platform === 'win32') {
-  execFileSync('powershell', ['-NoProfile', '-Command', `Expand-Archive -LiteralPath '${archive}' -DestinationPath '${work}' -Force`]);
-} else {
-  execFileSync('unzip', ['-o', '-q', archive, '-d', work]);
+/** Downloads one release archive, verifies it and unpacks it; returns the folder. */
+async function fetchAsset(name) {
+  const link = `https://github.com/XTLS/Xray-core/releases/download/${version}/${name}`;
+  const zip = await get(link);
+  const digest = (await get(`${link}.dgst`)).toString('utf8');
+  const expected = /SHA2-256=\s*([0-9a-f]{64})/i.exec(digest)?.[1]?.toLowerCase();
+  const actual = createHash('sha256').update(zip).digest('hex');
+  if (!expected || expected !== actual) throw new Error(`${name}: checksum mismatch, expected ${expected}, got ${actual}`);
+  console.log(name, 'sha256 ok', actual);
+  const dir = mkdtempSync(join(tmpdir(), 'xray-'));
+  const archive = join(dir, name);
+  writeFileSync(archive, zip);
+  if (process.platform === 'win32') {
+    execFileSync('powershell', ['-NoProfile', '-Command', `Expand-Archive -LiteralPath '${archive}' -DestinationPath '${dir}' -Force`]);
+  } else {
+    execFileSync('unzip', ['-o', '-q', archive, '-d', dir]);
+  }
+  return dir;
 }
+
+if (process.argv.includes('--android')) {
+  // Android runs a program only from the package's native library folder, so the core goes
+  // in as "libxray.so" for each architecture; its data files travel as assets.
+  const main = join(root, 'src-tauri', 'plugins', 'vpn', 'android', 'src', 'main');
+  const abis = { 'arm64-v8a': 'Xray-android-arm64-v8a.zip', x86_64: 'Xray-android-amd64.zip' };
+  console.log(`Xray ${version} for Android`);
+  rmSync(join(main, 'jniLibs'), { recursive: true, force: true });
+  rmSync(join(main, 'assets', 'xray'), { recursive: true, force: true });
+  mkdirSync(join(main, 'assets', 'xray'), { recursive: true });
+  for (const [abi, name] of Object.entries(abis)) {
+    const dir = await fetchAsset(name);
+    mkdirSync(join(main, 'jniLibs', abi), { recursive: true });
+    cpSync(join(dir, 'xray'), join(main, 'jniLibs', abi, 'libxray.so'));
+    for (const data of ['geoip.dat', 'geosite.dat']) cpSync(join(dir, data), join(main, 'assets', 'xray', data));
+    rmSync(dir, { recursive: true, force: true });
+  }
+  console.log('unpacked to', main);
+  process.exit(0);
+}
+
+console.log(`Xray ${version} for ${os}-${arch}: ${asset}`);
+const work = await fetchAsset(asset);
 
 const dest = join(root, 'src-tauri', 'resources', 'xray');
 rmSync(dest, { recursive: true, force: true });

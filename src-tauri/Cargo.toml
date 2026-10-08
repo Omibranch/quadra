@@ -3,13 +3,15 @@ name = "quadra"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "quadra_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
-tauri-plugin-single-instance = "2"
-tauri-plugin-autostart = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "sync", "process", "io-util", "macros"] }
@@ -18,13 +20,23 @@ sha2 = "0.10"
 percent-encoding = "2"
 qrcode = { version = "0.14", default-features = false }
 
-# TLS: the system's own on Windows and macOS; on Linux rustls, so the binary does not depend
-# on whichever OpenSSL the distribution ships.
-[target.'cfg(not(target_os = "linux"))'.dependencies]
+# TLS: the system's own on Windows and macOS; rustls on Linux and Android, so the binary does
+# not depend on whichever OpenSSL is (or is not) there.
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["native-tls", "socks", "gzip"] }
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(not(any(windows, target_os = "macos")))'.dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "socks", "gzip"] }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-single-instance = "2"
+tauri-plugin-autostart = "2"
+
+# Android: the system VPN hands us a tunnel device; tun2proxy turns its packets into SOCKS
+# connections to the core.
+[target.'cfg(target_os = "android")'.dependencies]
+tauri-plugin-quadra-vpn = { path = "plugins/vpn" }
+tun2proxy = { version = "0.8", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
