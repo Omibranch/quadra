@@ -1,6 +1,6 @@
 # Third-party software and data
 
-Quadra's own code is under the MIT licence (see `LICENSE`). The installers also carry the
+Quadra's own code is under the GNU General Public License, version 3 (see `LICENSE`). The installers also carry the
 following, each under its own terms.
 
 | What | Where it comes from | Licence |

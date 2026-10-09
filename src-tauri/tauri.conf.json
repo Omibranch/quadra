@@ -49,7 +49,7 @@
     "category": "Utility",
     "shortDescription": "VLESS client with a map",
     "longDescription": "A fast desktop client for VLESS and other Xray protocols: subscriptions, system proxy and all-traffic modes, and a world map that shows where your traffic goes.",
-    "copyright": "MIT License",
+    "copyright": "Copyright (c) 2026 Omi. GPL-3.0",
     "windows": {
       "nsis": {
         "installerIcon": "icons/icon.ico",
@@ -63,7 +63,7 @@
         "installMode": "currentUser"
       }
     },
-    "license": "MIT",
+    "license": "GPL-3.0-only",
     "homepage": "https://github.com/Omibranch/quadra"
   }
 }

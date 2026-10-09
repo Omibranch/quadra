@@ -13,7 +13,7 @@
   <a href="https://github.com/Omibranch/quadra/releases/latest"><img src="https://img.shields.io/github/v/release/Omibranch/quadra?color=3ddc84&label=release" alt="Latest release"></a>
   <a href="https://github.com/Omibranch/quadra/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/Omibranch/quadra/build.yml?branch=main&label=build" alt="Build"></a>
   <img src="https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux%20%C2%B7%20Android-2b3631" alt="Windows, macOS, Linux, Android">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-2b3631" alt="MIT licence"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-GPL--3.0-2b3631" alt="GPL-3.0 licence"></a>
 </p>
 
 <p align="center">
@@ -134,4 +134,5 @@ Quadra stands on [Xray-core](https://github.com/XTLS/Xray-core),
 
 ## Licence
 
-[MIT](LICENSE)
+[GPL-3.0](LICENSE) from version 0.3.1: Quadra is free to use, change and pass on, and anything built
+from it has to stay open under the same terms. Versions up to 0.3.0 were released under MIT.
